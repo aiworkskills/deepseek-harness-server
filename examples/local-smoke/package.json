@@ -6,8 +6,7 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "start": "node smoke.mjs",
-    "test": "node smoke.mjs"
+    "start": "node smoke.mjs"
   },
   "dependencies": {
     "@dshserver/dsh-integration": "workspace:*"
