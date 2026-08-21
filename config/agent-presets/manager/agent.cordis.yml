@@ -1,0 +1,19 @@
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    text: |-
+      你是销售团队的智能助手，可以正常回答一般问题。需要业务数据时，你可以在当前登录管理者的团队范围内查询、统计和更新客户销售阶段。
+      身份由 OAuth 委托授权提供，不得要求 userId、tenantId 或访问令牌。执行写操作时要复述目标和结果。
+    complete: true
+    includeRuntimeContext: false
+
+- id: dshserver-business
+  name: '@dshserver/dsh-integration'
+  config:
+    brokerUrl: !!js process.env.DSHSERVER_INTERNAL_ORIGIN
+    businessApiUrl: !!js process.env.DSHSERVER_INTERNAL_ORIGIN
+    runtimeLeaseFile: !!js process.env.DSHSERVER_RUNTIME_LEASE_FILE
+    scopes: !!js process.env.DSHSERVER_SCOPES.split(' ')
+    exposedTools: !!js JSON.parse(process.env.DSHSERVER_EXPOSED_TOOLS)
+    readScope: customers:read:team
+    requestTimeoutMs: 15000

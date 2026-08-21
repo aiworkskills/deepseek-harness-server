@@ -1,0 +1,54 @@
+{
+  "name": "@dshserver/runtime-gateway",
+  "version": "0.1.0",
+  "description": "Managed per-user Runtime Gateway for DeepSeek Harness",
+  "license": "MIT",
+  "author": "DSH Server contributors",
+  "homepage": "https://github.com/aiworkskills/deepseek-harness-server/tree/main/packages/runtime-gateway#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aiworkskills/deepseek-harness-server.git",
+    "directory": "packages/runtime-gateway"
+  },
+  "bugs": {
+    "url": "https://github.com/aiworkskills/deepseek-harness-server/issues"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "gateway",
+    "multi-tenant",
+    "process-isolation"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "pnpm clean && tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --dir src",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
+  }
+}

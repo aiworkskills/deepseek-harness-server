@@ -1,0 +1,87 @@
+{
+  "name": "@dshserver/dsh-preferences",
+  "version": "0.1.0",
+  "description": "Browser preferences and native settings card for managed DeepSeek Harness runtimes",
+  "license": "MIT",
+  "author": "DSH Server contributors",
+  "homepage": "https://github.com/aiworkskills/deepseek-harness-server/tree/main/packages/dsh-preferences#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aiworkskills/deepseek-harness-server.git",
+    "directory": "packages/dsh-preferences"
+  },
+  "bugs": {
+    "url": "https://github.com/aiworkskills/deepseek-harness-server/issues"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "cordis",
+    "settings",
+    "browser-plugin"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./client": "./dist/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-api-remotes",
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-theme"
+      ],
+      "platform": "web"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "pnpm clean && tsc -p tsconfig.json && tsc -p tsconfig.client.json --noEmit && esbuild src/client.ts --bundle --platform=browser --format=cjs --external:react --outfile=dist/client-body/client.js && node scripts/wrap-client.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit",
+    "test": "vitest run --dir tests",
+    "clean": "rm -rf dist"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-api-remotes": ">=0.1.0-rc.6 <0.2.0",
+    "@deepseek-ai/dsh-client-connection": ">=0.1.0-rc.6 <0.2.0",
+    "@deepseek-ai/dsh-client-runtime": ">=0.1.0-rc.6 <0.2.0",
+    "@deepseek-ai/dsh-client-ui-settings": ">=0.1.0-rc.6 <0.2.0",
+    "@deepseek-ai/dsh-client-ui-settings-plugins": ">=0.1.0-rc.6 <0.2.0",
+    "@deepseek-ai/dsh-client-ui-theme": ">=0.1.0-rc.6 <0.2.0",
+    "react": "^18.2.0"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/dsh-api-remotes": "0.1.0-rc.8",
+    "@deepseek-ai/dsh-client-connection": "0.1.0-rc.8",
+    "@deepseek-ai/dsh-client-runtime": "0.1.0-rc.8",
+    "@deepseek-ai/dsh-client-ui-settings": "0.1.0-rc.8",
+    "@deepseek-ai/dsh-client-ui-settings-plugins": "0.1.0-rc.8",
+    "@deepseek-ai/dsh-client-ui-theme": "0.1.0-rc.8",
+    "@types/react": "^18.3.1",
+    "esbuild": "^0.27.4",
+    "react": "18.3.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
+  }
+}

@@ -1,0 +1,131 @@
+# Enterprise overlay applied after the official dsh-base and dsh-web-app bundles.
+# It removes dangerous host administration surfaces, pins the Agent Preset, and
+# exposes DSH's native configuration plane only in administrator runtimes. All
+# runtimes consume the resulting tenant model catalog.
+
+- id: agent-default-model
+  config:
+    provider: !!js process.env.DSHSERVER_MODEL_PROVIDER || 'deepseek-official'
+    model: !!js process.env.DSHSERVER_MODEL_ID || 'deepseek-v4-flash'
+
+- id: session-title-llm
+  disabled: true
+
+- id: llm-deepseek
+  disabled: false
+  config:
+    apiKeyEnv: !!js process.env.DSHSERVER_MODEL_API_KEY_ENV || 'DEEPSEEK_API_KEY'
+    baseURL: !!js process.env.DSHSERVER_MODEL_BASE_URL || undefined
+    models:
+      - id: !!js process.env.DSHSERVER_MODEL_ID || 'deepseek-v4-flash'
+        name: !!js process.env.DSHSERVER_MODEL_NAME || process.env.DSHSERVER_MODEL_ID || 'DeepSeek V4 Flash'
+
+- id: llm-pi-ai
+  disabled: false
+
+# All runtimes in one OAuth tenant consume the same administrator-owned model
+# configuration. DSH providers coordinate writes across processes and hot-reload
+# external changes; only the Gateway decides who may call their write APIs.
+- id: settings
+  config:
+    path: !!js process.env.DSHSERVER_SETTINGS_PATH
+
+# Register tenant behavior at Host lifetime so the native settings page works
+# before any session mounts the business Agent Preset.
+- insert:
+    - id: dshserver-integration-settings
+      name: '@dshserver/dsh-integration/settings'
+      config:
+        requestTimeoutMs: 15000
+        writeOperationsEnabled: true
+        minimumWriteReasonLength: 2
+
+- id: credentials
+  config:
+    path: !!js process.env.DSHSERVER_CREDENTIALS_PATH
+
+- id: api-gateway
+  config:
+    exposedSettingsNamespaces: !!js JSON.parse(process.env.DSHSERVER_EXPOSED_SETTINGS_NAMESPACES || '[]')
+
+- id: sandbox-policy
+  config:
+    mode: read-only
+    workspaceRoot: !!js process.env.DSHSERVER_WORKSPACE_ROOT
+
+- id: approval
+  config:
+    policy: ask
+
+# Host-plane capabilities ordinary business users must never reach.
+- id: directory-picker
+  disabled: true
+
+# api-gateway injects this service at boot even when the directory picker UI is
+# absent. The enterprise Gateway denies its model-facing RPCs below, so it is
+# an internal dependency rather than an end-user capability.
+- insert:
+    - id: directory-picker-browse
+      name: '@deepseek-ai/dsh-host-directory-picker-browse'
+
+- id: plugin-inventory
+  disabled: true
+
+- id: cordis-host-runner
+  disabled: true
+
+- id: cordis-client-runner
+  disabled: true
+
+# General settings are available to every user so the built-in appearance
+# controls remain reachable. Platform configuration pages remain administrator-only.
+- id: ui-settings-general
+  disabled: false
+
+- id: ui-settings-models
+  disabled: !!js process.env.DSHSERVER_SETTINGS_ENABLED !== '1'
+
+- id: ui-settings-plugin-inventory
+  disabled: true
+
+- id: ui-settings-plugins
+  disabled: !!js process.env.DSHSERVER_SETTINGS_ENABLED !== '1'
+
+# The browser plugin persists personal appearance for every user and registers
+# the connector card lazily. Only administrator profiles declare the plugin
+# settings slot above; the Gateway independently enforces platform write scope.
+- insert:
+    - id: dshserver-preferences
+      name: '@dshserver/dsh-preferences'
+
+- id: ui-agent-preset
+  disabled: true
+
+- id: ui-permission
+  disabled: true
+
+- id: ui-cordis
+  disabled: true
+
+- id: ui-skill
+  disabled: true
+
+- id: ui-subagent
+  disabled: true
+
+- id: ui-plan
+  disabled: true
+
+- id: ui-goal
+  disabled: true
+
+- id: ui-jobs
+  disabled: true
+
+- id: agent-presets
+  config:
+    default: business
+    # The DSH CLI owns the shipped roots and appends its DSH_HOME extension
+    # root. This deployment owns the whole per-user DSH_HOME and writes the
+    # only preset there; users cannot reach preset management APIs or UI.
+    includeUserRoot: true

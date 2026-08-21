@@ -1,0 +1,24 @@
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      dev-tooling:
+        patterns:
+          - typescript
+          - vitest
+          - '@types/*'
+          - esbuild
+    ignore:
+      # DSH is still pre-release and its npm dist-tags lag behind `next`; the
+      # supported version is pinned by hand together with docs/compatibility.md.
+      - dependency-name: '@deepseek-ai/*'
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
