@@ -1,0 +1,15 @@
+{
+  "name": "@dshserver/example-local-smoke",
+  "version": "0.0.0",
+  "description": "Runnable local contract check: fake Token Broker, fake business API, real connector plugin",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "start": "node smoke.mjs",
+    "test": "node smoke.mjs"
+  },
+  "dependencies": {
+    "@dshserver/dsh-integration": "workspace:*"
+  }
+}

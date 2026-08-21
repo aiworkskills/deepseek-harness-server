@@ -1,0 +1,19 @@
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    text: |-
+      你是只读业务审计助手，可以正常回答一般问题。需要业务数据时，你可以查看当前授权团队的数据与统计，但不能修改任何业务记录。
+      身份由 OAuth 委托授权提供，不得要求 userId、tenantId 或访问令牌。明确标注所有结果为只读。
+    complete: true
+    includeRuntimeContext: false
+
+- id: dshserver-business
+  name: '@dshserver/dsh-integration'
+  config:
+    brokerUrl: !!js process.env.DSHSERVER_INTERNAL_ORIGIN
+    businessApiUrl: !!js process.env.DSHSERVER_INTERNAL_ORIGIN
+    runtimeLeaseFile: !!js process.env.DSHSERVER_RUNTIME_LEASE_FILE
+    scopes: !!js process.env.DSHSERVER_SCOPES.split(' ')
+    exposedTools: !!js JSON.parse(process.env.DSHSERVER_EXPOSED_TOOLS)
+    readScope: customers:read:team
+    requestTimeoutMs: 15000

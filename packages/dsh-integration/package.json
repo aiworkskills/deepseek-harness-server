@@ -1,0 +1,69 @@
+{
+  "name": "@dshserver/dsh-integration",
+  "version": "0.1.0",
+  "description": "OAuth-scoped business tools and authorization guard for DeepSeek Harness",
+  "license": "MIT",
+  "author": "DSH Server contributors",
+  "homepage": "https://github.com/aiworkskills/deepseek-harness-server/tree/main/packages/dsh-integration#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aiworkskills/deepseek-harness-server.git",
+    "directory": "packages/dsh-integration"
+  },
+  "bugs": {
+    "url": "https://github.com/aiworkskills/deepseek-harness-server/issues"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "cordis",
+    "oauth",
+    "token-exchange",
+    "agent-tools"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./settings": {
+      "types": "./dist/settings.d.ts",
+      "default": "./dist/settings.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "pnpm clean && tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --dir tests",
+    "clean": "rm -rf dist"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-settings": ">=0.1.0-rc.6 <0.2.0",
+    "@deepseek-ai/schemastery": "^3.18.1",
+    "@deepseek-ai/dsh-tools": ">=0.1.0-rc.6 <0.2.0"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/dsh-settings": "0.1.0-rc.8",
+    "@deepseek-ai/schemastery": "3.18.1",
+    "@deepseek-ai/dsh-tools": "0.1.0-rc.8",
+    "@types/node": "^22.18.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
+  }
+}

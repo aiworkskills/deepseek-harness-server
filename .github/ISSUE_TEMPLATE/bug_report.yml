@@ -1,0 +1,64 @@
+name: Bug 报告
+description: 报告一个可复现的问题
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **安全漏洞请不要提交这里。** 请按 [SECURITY.md](../blob/main/SECURITY.md) 创建
+        私密 Security Advisory。
+
+  - type: input
+    id: version
+    attributes:
+      label: 版本
+      description: 三个包的版本（锁步发版，通常相同）
+      placeholder: '0.1.0'
+    validations:
+      required: true
+
+  - type: input
+    id: dsh-version
+    attributes:
+      label: DeepSeek Harness 版本
+      description: 已安装的 '@deepseek-ai/*' 版本。支持矩阵见 docs/compatibility.md
+      placeholder: '0.1.0-rc.8'
+    validations:
+      required: true
+
+  - type: dropdown
+    id: package
+    attributes:
+      label: 涉及的包
+      multiple: true
+      options:
+        - '@dshserver/dsh-integration'
+        - '@dshserver/runtime-gateway'
+        - '@dshserver/dsh-preferences'
+        - config/ (Profile 或 Agent Preset)
+        - 文档
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 发生了什么
+      description: 实际行为，以及你期望的行为
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: 复现步骤
+      description: 尽量给最小复现。`pnpm example` 是否也能复现？
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志或错误信息
+      description: 请先删除 Token、内部地址和真实业务数据。
+      render: text
