@@ -41,6 +41,15 @@ const publicPackages = [
   'packages/dsh-preferences',
 ]
 
+// Every check below inspects build output, so an unbuilt tree would report a
+// wall of misleading "missing export target" failures instead of the real cause.
+const unbuilt = publicPackages.filter(dir => !existsSync(join(root, dir, 'dist')))
+if (unbuilt.length > 0) {
+  console.error('Release check failed: 以下包尚未构建，请先运行 `pnpm build`')
+  for (const dir of unbuilt) console.error(`- ${dir}`)
+  process.exit(1)
+}
+
 const versions = new Set()
 
 for (const packageDir of publicPackages) {
