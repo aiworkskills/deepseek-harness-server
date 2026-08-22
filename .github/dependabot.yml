@@ -17,6 +17,13 @@ updates:
       # DSH is still pre-release and its npm dist-tags lag behind `next`; the
       # supported version is pinned by hand together with docs/compatibility.md.
       - dependency-name: '@deepseek-ai/*'
+      # React is never bundled: the browser build passes `--external:react`, so the
+      # DSH web app supplies it at runtime and `peerDependencies.react` tracks that
+      # host. Patches keep flowing; a major has to follow DSH, not Dependabot.
+      - dependency-name: 'react'
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@types/react'
+        update-types: ['version-update:semver-major']
 
   - package-ecosystem: github-actions
     directory: /
