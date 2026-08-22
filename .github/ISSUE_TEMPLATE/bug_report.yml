@@ -22,7 +22,7 @@ body:
     attributes:
       label: DeepSeek Harness 版本
       description: 已安装的 '@deepseek-ai/*' 版本。支持矩阵见 docs/compatibility.md
-      placeholder: '0.1.0-rc.8'
+      placeholder: '0.1.1-rc.2'
     validations:
       required: true
 

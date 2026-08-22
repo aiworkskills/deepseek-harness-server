@@ -18,6 +18,14 @@ describe('runtime identity', () => {
     expect(tenantKey({ issuer: principal.issuer, tenantId: principal.tenantId })).toBe(tenantKey(principal))
   })
 
+  it('pins the tenant key when a deployment names it', () => {
+    expect(tenantKey(principal, 'acme-prod')).toBe('acme-prod')
+    expect(tenantKey({ issuer: 'https://login.acme.com', tenantId: 'other' }, 'acme-prod')).toBe('acme-prod')
+    expect(tenantKey(principal, '')).toBe(tenantKey(principal))
+    expect(() => tenantKey(principal, '../escape')).toThrow(/safe path segment/)
+    expect(() => tenantKey(principal, 'a'.repeat(65))).toThrow(/safe path segment/)
+  })
+
   it('changes the restart fingerprint when effective policy changes', () => {
     expect(policyFingerprint({ ...principal, tools: [] })).not.toBe(policyFingerprint(principal))
     expect(policyFingerprint({ ...principal, scopes: [...principal.scopes] })).toBe(policyFingerprint(principal))

@@ -37,12 +37,13 @@
   },
   "files": [
     "dist",
+    "!dist/**/*.map",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
     "build": "pnpm clean && tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
     "test": "vitest run --dir src",
     "clean": "rm -rf dist"
   },

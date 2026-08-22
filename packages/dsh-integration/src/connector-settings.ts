@@ -46,15 +46,19 @@ export function assertConnectorSettings(settings: ConnectorSettings): void {
   }
 }
 
-/** Attach the safe tenant behavior section to DSH Settings and return a live source. */
-export function installConnectorSettings(ctx: Context, base: ConnectorSettings): () => ConnectorSettings {
-  let current = () => base
+/**
+ * Attach the safe tenant behavior section to DSH Settings.
+ *
+ * The Host plane only owns the namespace. Tools read the live value through
+ * `connectorSettings()` on every call, so this owner keeps no source of its
+ * own and has nothing to recompute when the administrator saves a change.
+ */
+export function installConnectorSettings(ctx: Context, base: ConnectorSettings): void {
   installSettingsSection(ctx, CONNECTOR_SETTINGS_NAMESPACE, ConnectorSettingsSchema, base, {
     validate: assertConnectorSettings,
-    setSource: source => { current = source },
+    setSource: () => {},
     onChange: () => {},
   })
-  return () => current()
 }
 
 /** Read the Host-owned live section, falling back when this plugin is embedded without the profile owner. */

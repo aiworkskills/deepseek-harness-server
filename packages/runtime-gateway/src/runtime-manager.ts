@@ -1,12 +1,13 @@
 import { createServer } from 'node:net'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { chmod, rename, writeFile } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 
 import type { GatewayPrincipal, RuntimeLeaseIssuer, RuntimePrincipal } from './types.js'
 import { policyFingerprint, runtimeKey } from './runtime-identity.js'
 import {
-  assertBuiltArtifacts, provisionRuntimeHome, runtimeEnvironment, runtimeLayout,
+  assertBuiltArtifacts, inspectTenantConfig, provisionRuntimeHome, runtimeEnvironment, runtimeLayout,
+  type RuntimeLayout, type RuntimeLayoutOptions,
 } from './runtime-provision.js'
 
 export interface RuntimeRecord {
@@ -38,15 +39,16 @@ export interface RuntimeView {
   readonly preset: string
 }
 
-export interface RuntimeManagerOptions {
-  readonly projectRoot: string
-  readonly dshSourceRoot: string
-  readonly runtimeRoot: string
+export interface RuntimeManagerOptions extends RuntimeLayoutOptions {
   readonly internalOrigin: string
   readonly publicHost: string
   readonly idleMs: number
   readonly disabled: boolean
-  readonly exposedSettingsNamespaces: readonly string[]
+  readonly log?: (message: string) => void
+}
+
+function defaultLog(message: string): void {
+  process.stdout.write(`DSH Gateway: ${message}\n`)
 }
 
 async function availablePort(): Promise<number> {
@@ -69,8 +71,11 @@ async function availablePort(): Promise<number> {
 async function waitForReady(record: RuntimeRecord): Promise<void> {
   const deadline = Date.now() + 45_000
   while (Date.now() < deadline) {
-    if (record.child.exitCode !== null) {
-      throw new Error(`DSH Runtime exited during startup (${record.child.exitCode}): ${record.logs.slice(-8).join('\n')}`)
+    // A signalled child keeps `exitCode` null, so check both — otherwise a
+    // killed runtime is only reported once the 45s deadline runs out.
+    if (record.child.exitCode !== null || record.child.signalCode !== null) {
+      const cause = record.child.exitCode ?? record.child.signalCode
+      throw new Error(`DSH Runtime exited during startup (${cause}): ${record.logs.slice(-8).join('\n')}`)
     }
     try {
       const response = await fetch(record.target, { signal: AbortSignal.timeout(500) })
@@ -131,6 +136,7 @@ async function ensureManagedWorkspace(record: RuntimeRecord): Promise<string> {
 export class RuntimeManager {
   private readonly runtimes = new Map<string, RuntimeRecord>()
   private readonly starting = new Map<string, { readonly fingerprint: string; readonly promise: Promise<RuntimeRecord> }>()
+  private readonly reportedTenants = new Set<string>()
   private readonly sweepTimer: NodeJS.Timeout
 
   constructor(
@@ -151,13 +157,16 @@ export class RuntimeManager {
       if (existing.leaseExpiresAt <= Date.now() + 60_000) await this.refreshLease(existing, principal)
       return existing
     }
-    if (existing !== undefined) await this.stop(existing)
+    // A start already in flight owns the child process behind `existing`, which
+    // is still 'starting'. Join it — stopping that record here would kill the
+    // process the pending promise is waiting on.
     const pending = this.starting.get(key)
     if (pending !== undefined) {
       if (pending.fingerprint === fingerprint) return await pending.promise
       try { await pending.promise } catch { /* The replacement start below owns the next error. */ }
       return await this.runtime(principal)
     }
+    if (existing !== undefined) await this.stop(existing)
     const start = this.startRuntime(key, fingerprint, principal)
     this.starting.set(key, { fingerprint, promise: start })
     try {
@@ -190,7 +199,8 @@ export class RuntimeManager {
     const defaultModel = principal.models[0]
     if (defaultModel === undefined) throw new Error('Runtime has no deployment-approved model')
     const layout = runtimeLayout(this.options, key, principal)
-    await provisionRuntimeHome(layout, this.options.projectRoot, key, principal.presetRole)
+    const provisioned = await provisionRuntimeHome(layout, key, principal.presetRole)
+    await this.reportTenantConfig(layout, provisioned.seededModelDefaults)
     await assertBuiltArtifacts(layout)
 
     const port = await availablePort()
@@ -200,6 +210,10 @@ export class RuntimeManager {
       '--host', '127.0.0.1',
       '--port', String(port),
       '--trusted-host', this.options.publicHost,
+      // A managed Runtime must never reach the operator's desktop: the web
+      // profile opens the default browser on startup unless this is passed,
+      // which would also hand out a Gateway-free URL to the raw Runtime port.
+      '--no-open',
     ], {
       cwd: layout.workspace,
       env: runtimeEnvironment({
@@ -207,7 +221,6 @@ export class RuntimeManager {
         principal,
         defaultModel,
         internalOrigin: this.options.internalOrigin,
-        exposedSettingsNamespaces: this.options.exposedSettingsNamespaces,
       }),
       stdio: ['ignore', 'pipe', 'pipe'],
     })
@@ -256,6 +269,33 @@ export class RuntimeManager {
     }
   }
 
+  /**
+   * Announce the tenant configuration directory once per process.
+   *
+   * An operator who changes `PUBLIC_ORIGIN` or swaps in the customer's IdP moves
+   * the derived tenant key, and the only visible symptom is that administrator
+   * settings and credentials appear to be gone. Naming the directory and the
+   * orphans on startup makes that recoverable instead of mysterious.
+   */
+  private async reportTenantConfig(layout: RuntimeLayout, seededModelDefaults: boolean): Promise<void> {
+    const key = basename(layout.tenantConfigDir)
+    if (this.reportedTenants.has(key)) return
+    this.reportedTenants.add(key)
+    const log = this.options.log ?? defaultLog
+    try {
+      const report = await inspectTenantConfig(layout)
+      const origin = this.options.tenantKey === undefined ? 'derived from the OAuth issuer and tenant id' : 'pinned by DSHSERVER_TENANT_KEY'
+      log(`tenant configuration ${report.key} (${origin}) at ${report.directory}`)
+      if (seededModelDefaults) log('profile has no administrator-owned entries yet; seeding deployment model defaults')
+      if (report.configured || report.orphans.length === 0) return
+      log(`WARNING: this tenant directory is empty while ${report.orphans.join(', ')} still hold configuration.`)
+      log(`WARNING: set DSHSERVER_TENANT_KEY to reuse an existing directory, or move it to ${report.key}.`)
+    } catch (error) {
+      // Diagnostics must never block a Runtime start.
+      log(`failed to inspect tenant configuration: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
   private async refreshLease(record: RuntimeRecord, principal: GatewayPrincipal): Promise<void> {
     if (record.leaseRefresh !== undefined) return await record.leaseRefresh
     const refresh = (async () => {
@@ -294,21 +334,9 @@ export class RuntimeManager {
   }
 }
 
-function parseExposedSettingsNamespaces(raw: string | undefined): readonly string[] {
-  let configured: unknown = []
-  try {
-    configured = JSON.parse(raw ?? '[]')
-  } catch {
-    throw new Error('DSHSERVER_EXPOSED_SETTINGS_NAMESPACES must be a JSON array of strings')
-  }
-  if (!Array.isArray(configured) || configured.some(value => typeof value !== 'string')) {
-    throw new Error('DSHSERVER_EXPOSED_SETTINGS_NAMESPACES must be a JSON array of strings')
-  }
-  return configured as string[]
-}
-
 export function defaultRuntimeOptions(projectRoot: string, publicOrigin: string, internalOrigin = publicOrigin): RuntimeManagerOptions {
   const dshSourceRoot = resolve(process.env.DSH_SOURCE_ROOT ?? join(projectRoot, '..', 'deepseek-harness'))
+  const pinnedTenantKey = process.env.DSHSERVER_TENANT_KEY
   return {
     projectRoot,
     dshSourceRoot,
@@ -317,6 +345,6 @@ export function defaultRuntimeOptions(projectRoot: string, publicOrigin: string,
     publicHost: new URL(publicOrigin).host,
     idleMs: Number(process.env.DSH_RUNTIME_IDLE_MS ?? 15 * 60_000),
     disabled: process.env.DSH_RUNTIME_DISABLED === '1',
-    exposedSettingsNamespaces: parseExposedSettingsNamespaces(process.env.DSHSERVER_EXPOSED_SETTINGS_NAMESPACES),
+    ...(pinnedTenantKey === undefined || pinnedTenantKey.length === 0 ? {} : { tenantKey: pinnedTenantKey }),
   }
 }

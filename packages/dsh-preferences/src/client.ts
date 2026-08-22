@@ -130,9 +130,10 @@ export function apply(ctx: Context): void {
 
   const client = ctx as ClientContext
   const scope = client.settingsScope.bind<ConnectorSettings>({ namespace: CONNECTOR_SETTINGS_NAMESPACE })
+  // `settings.plugin.item` is a keyed slot: the tab dispatches by settings
+  // namespace, pairing this card with the Host section of the same name.
   client.slots.inject('settings.plugin.item', () => client.slots.register({
     name: 'settings.plugin.item',
-    id: CONNECTOR_SETTINGS_NAMESPACE,
-    order: 30,
+    key: CONNECTOR_SETTINGS_NAMESPACE,
   }, () => h(ConnectorSettingsCard, { scope })))
 }

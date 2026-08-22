@@ -1,0 +1,21 @@
+# Deployment model defaults, appended to the policy overlay only while the
+# profile root (`cordis.yml`) still holds no persisted entries.
+#
+# Once an administrator saves any plugin configuration, DSH writes the composed
+# entry list back to the profile root and owns these entries from then on. The
+# Gateway stops appending this file at that point, so a native Models page edit
+# survives every restart, idle recycle and upgrade. Changing the environment
+# variables below after that only affects tenants that never configured a model.
+
+- id: agent-default-model
+  config:
+    provider: !!js process.env.DSHSERVER_MODEL_PROVIDER || 'deepseek-official'
+    model: !!js process.env.DSHSERVER_MODEL_ID || 'deepseek-v4-flash'
+
+- id: llm-deepseek
+  config:
+    apiKeyEnv: !!js process.env.DSHSERVER_MODEL_API_KEY_ENV || 'DEEPSEEK_API_KEY'
+    baseURL: !!js process.env.DSHSERVER_MODEL_BASE_URL || undefined
+    models:
+      - id: !!js process.env.DSHSERVER_MODEL_ID || 'deepseek-v4-flash'
+        name: !!js process.env.DSHSERVER_MODEL_NAME || process.env.DSHSERVER_MODEL_ID || 'DeepSeek V4 Flash'

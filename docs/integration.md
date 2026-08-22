@@ -101,11 +101,15 @@ WebSocket 流量代理到对应 Runtime。
 import { RuntimeManager, defaultRuntimeOptions } from '@dshserver/runtime-gateway'
 
 const runtimes = new RuntimeManager(authority, defaultRuntimeOptions(
-  projectRoot,            // 仓库根目录，用于定位 Preset、Profile 与插件
+  projectRoot,            // 宿主应用根目录，用于派生 Preset、Profile 与插件包路径
   publicOrigin,           // 对外访问地址，用于 trusted-host 校验
   internalOrigin,         // Runtime 回调 Broker 与业务 API 的内部地址
 ))
 ```
+
+派生路径按参考部署的目录约定（`<projectRoot>/plugin/...`）。宿主应用的目录结构不同时，
+用 `pluginRoot`、`preferencesRoot`、`configRoot` 直接指定这三份部署资产，见
+[配置参考 · Runtime Gateway 选项](configuration.md#runtime-gateway-选项)。
 
 `authority` 只需实现一个方法：
 
@@ -327,13 +331,10 @@ for (const tool of [...CUSTOMER_TOOLS, ...ORDER_TOOLS]) {
 策略写入必须校验管理 Scope 与策略版本号（或 ETag），防止并发覆盖。策略控制面由集成方
 实现；本仓库只消费它产出的 `RuntimePrincipal`。
 
-若第三方插件注册了自己的设置命名空间，还需在部署侧显式加入审核白名单：
-
-```dotenv
-DSHSERVER_EXPOSED_SETTINGS_NAMESPACES=["acme-search","acme-workflow"]
-```
-
-未列入的命名空间即使已注册，也会被 DSH ApiProxy 返回 `settings-not-exposed`。
+第三方插件注册的设置命名空间不需要额外登记：自 Harness `0.1.1-rc.2` 起 ApiProxy 不再维护
+命名空间白名单，凡是已注册的命名空间都会出现在 `settings.describe` 结果里。远程读写的边界
+由 Gateway 承担——`settings.describe/update/replace/mutate` 全部要求
+`assistant:platform:write`，普通业务用户拿不到任何设置命名空间。
 
 ## 步骤 8：从业务页面把一段话送进对话框
 

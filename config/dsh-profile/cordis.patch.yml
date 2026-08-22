@@ -2,23 +2,19 @@
 # It removes dangerous host administration surfaces, pins the Agent Preset, and
 # exposes DSH's native configuration plane only in administrator runtimes. All
 # runtimes consume the resulting tenant model catalog.
-
-- id: agent-default-model
-  config:
-    provider: !!js process.env.DSHSERVER_MODEL_PROVIDER || 'deepseek-official'
-    model: !!js process.env.DSHSERVER_MODEL_ID || 'deepseek-v4-flash'
+#
+# Every entry here is re-applied on each Runtime start and therefore wins over
+# anything an administrator saved: that is the point for policy, and wrong for
+# defaults. Deployment model defaults live in `model-seed.patch.yml`, which the
+# Gateway appends only while the profile has no persisted entries.
 
 - id: session-title-llm
   disabled: true
 
+# Official Providers stay available; their catalogs and credentials belong to
+# the tenant, not to this overlay.
 - id: llm-deepseek
   disabled: false
-  config:
-    apiKeyEnv: !!js process.env.DSHSERVER_MODEL_API_KEY_ENV || 'DEEPSEEK_API_KEY'
-    baseURL: !!js process.env.DSHSERVER_MODEL_BASE_URL || undefined
-    models:
-      - id: !!js process.env.DSHSERVER_MODEL_ID || 'deepseek-v4-flash'
-        name: !!js process.env.DSHSERVER_MODEL_NAME || process.env.DSHSERVER_MODEL_ID || 'DeepSeek V4 Flash'
 
 - id: llm-pi-ai
   disabled: false
@@ -43,10 +39,6 @@
 - id: credentials
   config:
     path: !!js process.env.DSHSERVER_CREDENTIALS_PATH
-
-- id: api-gateway
-  config:
-    exposedSettingsNamespaces: !!js JSON.parse(process.env.DSHSERVER_EXPOSED_SETTINGS_NAMESPACES || '[]')
 
 - id: sandbox-policy
   config:
