@@ -27,19 +27,36 @@ describe('runtime provisioning layout', () => {
     expect(layout.cli).toBe('/srv/deepseek-harness/apps/cli/lib/bin.js')
   })
 
-  it('derives the child environment from trusted identity and always exposes the connector namespace', () => {
+  it('defaults the plugin, preferences and config roots to the reference deployment layout', () => {
+    const layout = runtimeLayout(options, 'subject-key', principal)
+    expect(layout.pluginRoot).toBe('/srv/dshserver/plugin')
+    expect(layout.preferencesRoot).toBe('/srv/dshserver/plugin/preferences')
+    expect(layout.configRoot).toBe('/srv/dshserver/plugin/config')
+  })
+
+  it('lets a host application with another tree name those roots itself', () => {
+    const layout = runtimeLayout({
+      ...options,
+      pluginRoot: '/opt/app/node_modules/@dshserver/dsh-integration',
+      preferencesRoot: '/opt/app/node_modules/@dshserver/dsh-preferences',
+      configRoot: '/opt/app/dsh-config',
+    }, 'subject-key', principal)
+    expect(layout.pluginRoot).toBe('/opt/app/node_modules/@dshserver/dsh-integration')
+    expect(layout.preferencesRoot).toBe('/opt/app/node_modules/@dshserver/dsh-preferences')
+    expect(layout.configRoot).toBe('/opt/app/dsh-config')
+  })
+
+  it('derives the child environment from trusted identity', () => {
     const layout = runtimeLayout(options, 'subject-key', principal)
     const env = runtimeEnvironment({
       layout,
       principal,
       defaultModel: principal.models[0]!,
       internalOrigin: 'http://127.0.0.1:4173',
-      exposedSettingsNamespaces: ['acme-extra', 'dshserver-integration'],
     })
     expect(env.DSH_HOME).toBe(layout.home)
     expect(env.DSHSERVER_SCOPES).toBe('assistant:use customers:read:self')
     expect(env.DSHSERVER_SETTINGS_ENABLED).toBe('0')
-    expect(JSON.parse(env.DSHSERVER_EXPOSED_SETTINGS_NAMESPACES!)).toEqual(['dshserver-integration', 'acme-extra'])
     expect(JSON.parse(env.DSHSERVER_EXPOSED_TOOLS!)).toEqual(['business_list_customers'])
   })
 })

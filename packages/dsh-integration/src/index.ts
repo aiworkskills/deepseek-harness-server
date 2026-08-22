@@ -15,7 +15,9 @@ export { Config, BUSINESS_TOOL_NAMES }
 export type { BusinessToolName, ReadScope } from './policy.js'
 export type { ResolvedConfig } from './config.js'
 export type { ConnectorSettings } from './connector-settings.js'
-export type { BusinessRequest, BusinessToolRegistration, BusinessToolSpec } from './catalog.js'
+export type {
+  BusinessRequest, BusinessRequestContext, BusinessToolDependencies, BusinessToolRegistration, BusinessToolSpec,
+} from './catalog.js'
 export { businessTool } from './catalog.js'
 
 /** Register the deployment-selected tools and one final authorization guard. */

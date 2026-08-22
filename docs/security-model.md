@@ -92,9 +92,10 @@ DSH 原生设置页只对带 `assistant:platform:write` 的账号装载，并由
 - 动态执行代码；
 - 绕过 `ctx.tools` 保存凭据。
 
-第三方插件若注册了自己的设置命名空间，还必须显式加入
-`DSHSERVER_EXPOSED_SETTINGS_NAMESPACES` 白名单，否则 DSH ApiProxy 返回
-`settings-not-exposed`。插件不能自行扩大远程配置权限。
+第三方插件注册的设置命名空间自 Harness `0.1.1-rc.2` 起对 ApiProxy 默认可见（该版本删除了
+命名空间白名单）。远程配置权限的唯一边界是 Gateway：`settings.describe/update/replace/mutate`
+全部要求 `assistant:platform:write`，`settings.openDocument` 一律拒绝。插件不能自行扩大
+这一边界，但审计第三方插件时要意识到它注册的任何命名空间都会出现在管理员的设置页上。
 
 ## 提示注入与工具组合
 

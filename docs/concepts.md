@@ -100,6 +100,10 @@ tenantKey  = sha256(issuer \0 tenantId)[:20]
 `runtimeKey` 决定进程与用户私有目录；`tenantKey` 决定同租户共享的设置与凭据文件。
 两者都只从**已验证声明**派生，浏览器传入的任何标识都不参与。
 
+派生结果会随 issuer 变化，因此正式部署用 `DSHSERVER_TENANT_KEY`（或 `RuntimeManagerOptions`
+的 `tenantKey`）直接指定 `tenantKey`，让管理员配置在换域名或换 IdP 后仍然指向同一目录，
+见[配置持久化](configuration.md#配置持久化)。
+
 ### 每个 Runtime 拥有的资源
 
 | 资源 | 路径 | 隔离级别 |

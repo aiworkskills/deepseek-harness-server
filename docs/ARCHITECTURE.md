@@ -38,11 +38,11 @@ DSH 工具，并在同一处完成换票 Scope、写操作总开关、幂等键�
 ## Runtime Gateway
 
 ```text
-server/src/gateway-policy.ts     RPC 允许/拒绝边界
-server/src/runtime-identity.ts   稳定的用户键、租户键与重启指纹
-server/src/runtime-manager.ts    进程生命周期、就绪等待与租约续期
-server/src/runtime-provision.ts  每个 Subject 的文件布局与子进程环境
-server/src/types.ts              宿主集成契约
+packages/runtime-gateway/src/gateway-policy.ts     RPC 允许/拒绝边界
+packages/runtime-gateway/src/runtime-identity.ts   稳定的用户键、租户键与重启指纹
+packages/runtime-gateway/src/runtime-manager.ts    进程生命周期、就绪等待与租约续期
+packages/runtime-gateway/src/runtime-provision.ts  每个 Subject 的文件布局与子进程环境
+packages/runtime-gateway/src/types.ts              宿主集成契约
 ```
 
 Gateway 接受的是已验证的 `GatewayPrincipal`；它不实现登录，也不实现业务对象授权。
@@ -52,10 +52,10 @@ Runtime 的重启指纹包含进程启动时捕获的全部策略事实。租户
 ## 浏览器插件
 
 ```text
-preferences/src/client.ts          浏览器组合根：主题、话术接收、设置卡片
-preferences/src/composer-bridge.ts 外部话术协议与暂存状态（纯逻辑）
-preferences/src/settings-card.ts   租户策略配置卡片
-preferences/src/theme.ts           浏览器本地主题偏好
+packages/dsh-preferences/src/client.ts          浏览器组合根：主题、话术接收、设置卡片
+packages/dsh-preferences/src/composer-bridge.ts 外部话术协议与暂存状态（纯逻辑）
+packages/dsh-preferences/src/settings-card.ts   租户策略配置卡片
+packages/dsh-preferences/src/theme.ts           浏览器本地主题偏好
 ```
 
 `composer-bridge.ts` 不认识 window、cordis 和 DSH 服务：它只做校验、草稿合并和一条
