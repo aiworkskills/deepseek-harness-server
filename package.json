@@ -21,7 +21,7 @@
     "build": "pnpm -r --if-present build",
     "test": "pnpm -r --if-present test",
     "typecheck": "pnpm -r --if-present typecheck",
-    "check": "pnpm typecheck && pnpm build && pnpm test",
+    "check": "pnpm build && pnpm typecheck && pnpm test",
     "example": "pnpm --filter @dshserver/dsh-integration build && pnpm --filter @dshserver/example-local-smoke start",
     "release:check": "node scripts/check-release.mjs",
     "clean": "pnpm -r --if-present run clean"
