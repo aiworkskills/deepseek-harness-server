@@ -68,6 +68,15 @@ async function availablePort(): Promise<number> {
   })
 }
 
+/**
+ * 启动失败时回传多少行子进程输出。
+ *
+ * 八行连一条 Node 栈回溯都装不下 —— 真正说明原因的那句往往在更前面,于是报错里
+ * 只剩下栈尾,看不出是什么坏了。记录本身保留 200 行,这里取一个够读完一次失败、
+ * 又不至于把日志淹掉的数。
+ */
+const STARTUP_LOG_LINES = 40
+
 async function waitForReady(record: RuntimeRecord): Promise<void> {
   const deadline = Date.now() + 45_000
   while (Date.now() < deadline) {
@@ -75,7 +84,7 @@ async function waitForReady(record: RuntimeRecord): Promise<void> {
     // killed runtime is only reported once the 45s deadline runs out.
     if (record.child.exitCode !== null || record.child.signalCode !== null) {
       const cause = record.child.exitCode ?? record.child.signalCode
-      throw new Error(`DSH Runtime exited during startup (${cause}): ${record.logs.slice(-8).join('\n')}`)
+      throw new Error(`DSH Runtime exited during startup (${cause}): ${record.logs.slice(-STARTUP_LOG_LINES).join('\n')}`)
     }
     try {
       const response = await fetch(record.target, { signal: AbortSignal.timeout(500) })
@@ -85,7 +94,7 @@ async function waitForReady(record: RuntimeRecord): Promise<void> {
     }
     await new Promise(resolveDelay => setTimeout(resolveDelay, 150))
   }
-  throw new Error(`DSH Runtime did not become ready: ${record.logs.slice(-8).join('\n')}`)
+  throw new Error(`DSH Runtime did not become ready: ${record.logs.slice(-STARTUP_LOG_LINES).join('\n')}`)
 }
 
 async function ensureManagedWorkspace(record: RuntimeRecord): Promise<string> {
@@ -134,13 +143,13 @@ async function ensureManagedWorkspace(record: RuntimeRecord): Promise<string> {
       const cause = record.child.exitCode ?? record.child.signalCode
       throw new Error(
         `DSH Runtime exited before its workspace was provisioned (${String(cause)}): `
-        + record.logs.slice(-8).join('\n'),
+        + record.logs.slice(-STARTUP_LOG_LINES).join('\n'),
       )
     }
     await new Promise(resolveDelay => setTimeout(resolveDelay, 150))
   }
   throw new Error(
-    `failed to provision managed DSH workspace: ${lastFailure}\n${record.logs.slice(-8).join('\n')}`,
+    `failed to provision managed DSH workspace: ${lastFailure}\n${record.logs.slice(-STARTUP_LOG_LINES).join('\n')}`,
   )
 }
 
