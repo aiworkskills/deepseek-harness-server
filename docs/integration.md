@@ -95,6 +95,31 @@ BFF 负责发起授权、交换 Token 并持有它。浏览器只拿到 HttpOnly
 安装 `@dshserver/runtime-gateway`，用它管理每用户 Runtime，并把 DSH 的 HTTP 与
 WebSocket 流量代理到对应 Runtime。
 
+> **想直接用现成的：** `@dshserver/gateway-server` 已经把 4.3–4.4 这段顺序做成了
+> 可运行的服务——匹配路径、认证、套用策略、拒绝被锁的 RPC、解析 Runtime、改写
+> `session.create`、代理。认证与策略仍由你提供。这段顺序写错不会在测试里暴露、
+> 会变成安全缺陷，所以除非确有必要，建议用现成的那套：
+>
+> ```ts
+> import { GatewayServer } from '@dshserver/gateway-server'
+>
+> const gateway = new GatewayServer({
+>   authenticate: async request => await verifySession(request),
+>   authorize: async principal => policyStore.agentPrincipal(principal),
+>   authority: { issueRuntimeLease },
+>   runtime: defaultRuntimeOptions(projectRoot, publicOrigin, internalOrigin),
+> })
+>
+> const server = createServer((request, response) => {
+>   void gateway.handleRequest(request, response).then(handled => {
+>     if (!handled) app(request, response)   // 不是 DSH 的路径，交回宿主应用
+>   })
+> })
+> server.on('upgrade', (request, socket, head) => { void gateway.handleUpgrade(request, socket, head) })
+> ```
+>
+> 下面各节描述这套接线**做了什么**，自己实现时按它们来。
+
 ### 4.1 创建 Runtime Manager
 
 ```ts

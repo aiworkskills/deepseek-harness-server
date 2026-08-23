@@ -1,5 +1,5 @@
 /**
- * Pre-publish gate for the three public packages.
+ * Pre-publish gate for the public packages.
  *
  * Checks the boundary that `pnpm check` cannot: that every package is
  * publishable, that its tarball contains what it claims and nothing more, that
@@ -38,6 +38,7 @@ if (rootPackage.license !== 'MIT') fail('根 package.json 必须声明 MIT Licen
 const publicPackages = [
   'packages/dsh-integration',
   'packages/runtime-gateway',
+  'packages/gateway-server',
   'packages/dsh-preferences',
 ]
 
@@ -62,9 +63,16 @@ for (const packageDir of publicPackages) {
   if (!manifest.repository?.url) fail(`${manifest.name} 缺少 repository 字段`)
   if (!manifest.bugs?.url) fail(`${manifest.name} 缺少 bugs 字段`)
 
+  // A consumer resolves dependencies, peerDependencies and optionalDependencies,
+  // so a local-only specifier in any of them yields a package that cannot be
+  // installed. devDependencies are never installed from a published package, and
+  // `workspace:` there is how a monorepo satisfies its own peer dependency while
+  // developing — `file:` and `link:` still point outside the workspace and stay
+  // rejected everywhere.
   for (const group of ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']) {
+    const unpublishable = group === 'devDependencies' ? /^(?:file:|link:)/ : /^(?:file:|link:|workspace:)/
     for (const [name, version] of Object.entries(manifest[group] ?? {})) {
-      if (/^(?:file:|link:|workspace:)/.test(String(version))) {
+      if (unpublishable.test(String(version))) {
         fail(`${manifest.name} 的 ${group}.${name} 使用不可发布依赖 ${version}`)
       }
     }

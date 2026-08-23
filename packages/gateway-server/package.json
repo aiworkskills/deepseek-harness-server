@@ -1,0 +1,59 @@
+{
+  "name": "@dshserver/gateway-server",
+  "version": "0.1.0",
+  "description": "Runnable Runtime Gateway server: authentication hooks, RPC lockdown and DSH traffic proxying",
+  "license": "MIT",
+  "author": "DSH Server contributors",
+  "homepage": "https://github.com/aiworkskills/deepseek-harness-server/tree/main/packages/gateway-server#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aiworkskills/deepseek-harness-server.git",
+    "directory": "packages/gateway-server"
+  },
+  "bugs": {
+    "url": "https://github.com/aiworkskills/deepseek-harness-server/issues"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "gateway",
+    "reverse-proxy",
+    "multi-tenant"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.map",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "pnpm clean && tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
+    "test": "vitest run --dir src",
+    "clean": "rm -rf dist"
+  },
+  "peerDependencies": {
+    "@dshserver/runtime-gateway": "^0.1.0"
+  },
+  "devDependencies": {
+    "@dshserver/runtime-gateway": "workspace:*",
+    "@types/node": "^26.2.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.8"
+  }
+}
