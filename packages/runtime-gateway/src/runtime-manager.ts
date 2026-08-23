@@ -127,9 +127,21 @@ async function ensureManagedWorkspace(record: RuntimeRecord): Promise<string> {
     } catch (error) {
       lastFailure = error instanceof Error ? error.message : String(error)
     }
+    // A Runtime that answered the readiness probe can still die before this
+    // call lands. Without this check every remaining attempt reports a bare
+    // connection failure, and the crash that caused it is never reported.
+    if (record.child.exitCode !== null || record.child.signalCode !== null) {
+      const cause = record.child.exitCode ?? record.child.signalCode
+      throw new Error(
+        `DSH Runtime exited before its workspace was provisioned (${String(cause)}): `
+        + record.logs.slice(-8).join('\n'),
+      )
+    }
     await new Promise(resolveDelay => setTimeout(resolveDelay, 150))
   }
-  throw new Error(`failed to provision managed DSH workspace: ${lastFailure}`)
+  throw new Error(
+    `failed to provision managed DSH workspace: ${lastFailure}\n${record.logs.slice(-8).join('\n')}`,
+  )
 }
 
 /** Starts one isolated DSH process and DSH_HOME per verified OAuth Subject. */
