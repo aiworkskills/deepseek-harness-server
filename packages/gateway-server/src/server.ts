@@ -27,7 +27,7 @@ import {
   type RuntimeRecord,
 } from '@dshserver/runtime-gateway'
 
-import { isDshHttpPath, pathnameOf } from './paths.js'
+import { isDshHttpPath, pathnameOf, runtimeTarget } from './paths.js'
 import { endSocket, proxyHttp, proxyUpgrade, readBody } from './proxy.js'
 
 /** Scope without which a Runtime is never started. */
@@ -48,6 +48,14 @@ export interface GatewayAuditEvent {
   readonly denial: GatewayDenial
   /** Absent when the request never authenticated. */
   readonly subject?: string
+  /**
+   * Why the Runtime could not be resolved, on `runtime_unavailable` only.
+   *
+   * A Runtime fails to start for reasons an operator has to see — a missing
+   * build artifact, an unreadable preset, a profile the Harness loader rejects.
+   * Reporting only the refusal leaves them with a 503 and nothing to act on.
+   */
+  readonly cause?: unknown
 }
 
 export interface GatewayServerOptions {
@@ -120,6 +128,7 @@ export class GatewayServer {
     try {
       await proxyHttp(request, response, {
         target: resolved.runtime.target,
+        path: runtimeTarget(request.url),
         ...(body === undefined ? {} : { body }),
       })
     } catch {
@@ -149,7 +158,10 @@ export class GatewayServer {
       return true
     }
     try {
-      await proxyUpgrade(request, socket, head, { target: resolved.runtime.target })
+      await proxyUpgrade(request, socket, head, {
+        target: resolved.runtime.target,
+        path: runtimeTarget(request.url),
+      })
     } catch {
       endSocket(socket, 502)
     }
@@ -181,13 +193,23 @@ export class GatewayServer {
 
     try {
       return { runtime: await this.runtimes.runtime(current) }
-    } catch {
-      return this.deny(pathname, 'runtime_unavailable', current.subject)
+    } catch (error) {
+      return this.deny(pathname, 'runtime_unavailable', current.subject, error)
     }
   }
 
-  private deny(pathname: string, denial: GatewayDenial, subject?: string): { readonly denial: GatewayDenial } {
-    this.options.onDenied?.({ pathname, denial, ...(subject === undefined ? {} : { subject }) })
+  private deny(
+    pathname: string,
+    denial: GatewayDenial,
+    subject?: string,
+    cause?: unknown,
+  ): { readonly denial: GatewayDenial } {
+    this.options.onDenied?.({
+      pathname,
+      denial,
+      ...(subject === undefined ? {} : { subject }),
+      ...(cause === undefined ? {} : { cause }),
+    })
     return { denial }
   }
 }

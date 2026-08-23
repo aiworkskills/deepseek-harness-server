@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { isDshHttpPath, pathnameOf } from './paths.js'
+import { isDshHttpPath, pathnameOf, runtimeTarget } from './paths.js'
 
 describe('DSH path matching', () => {
   it('claims the paths a Runtime serves', () => {
@@ -38,5 +38,30 @@ describe('DSH path matching', () => {
     // Normalization happens in the URL parser, so `..` cannot walk out of /api
     // and reach a path the gateway would hand to the host unchecked.
     expect(pathnameOf('/api/../assistant')).toBe('/assistant')
+  })
+})
+
+describe('assistant mount rewriting', () => {
+  it('maps the mount point onto the Runtime web app at the root', () => {
+    // A Runtime serves its app at `/`; `/assistant` is only where the deployment
+    // exposes it. Forwarding the mount path unchanged yields a 404 from the app.
+    expect(runtimeTarget('/assistant')).toBe('/')
+    expect(runtimeTarget('/assistant/')).toBe('/')
+    expect(runtimeTarget('/assistant/settings')).toBe('/settings')
+  })
+
+  it('keeps the query string across the rewrite', () => {
+    expect(runtimeTarget('/assistant?session=abc')).toBe('/?session=abc')
+  })
+
+  it('leaves absolute app paths alone', () => {
+    // These already carry the path the app asked for; rewriting would break them.
+    for (const path of ['/api/session.create', '/assets/index-abc.js', '/plugins/x/panel.js', '/favicon.svg']) {
+      expect(runtimeTarget(path), path).toBe(path)
+    }
+  })
+
+  it('does not treat a longer name as the mount point', () => {
+    expect(runtimeTarget('/assistantship')).toBe('/assistantship')
   })
 })

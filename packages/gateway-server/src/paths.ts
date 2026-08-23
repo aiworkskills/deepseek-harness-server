@@ -45,3 +45,22 @@ export function pathnameOf(url: string | undefined): string {
     return '/'
   }
 }
+
+/** Where the deployment exposes the Runtime's web app. */
+const ASSISTANT_MOUNT = '/assistant'
+
+/**
+ * Translate a request target into the path the Runtime expects.
+ *
+ * A Runtime serves its web app at the root; `/assistant` is only the mount point
+ * a deployment exposes it under. Everything else — `/api`, `/assets`, `/plugins`
+ * — already carries the absolute path the app asks for and passes through
+ * untouched, so rewriting those would break them.
+ */
+export function runtimeTarget(url: string | undefined): string {
+  const target = url ?? '/'
+  const pathname = pathnameOf(target)
+  if (pathname !== ASSISTANT_MOUNT && !pathname.startsWith(`${ASSISTANT_MOUNT}/`)) return target
+  const rewritten = target.slice(ASSISTANT_MOUNT.length)
+  return rewritten.startsWith('/') ? rewritten : `/${rewritten}`
+}

@@ -54,6 +54,9 @@ export async function readBody(request: IncomingMessage): Promise<Buffer> {
 }
 
 export interface ProxyRequestOptions extends ProxyTarget {
+  /** Request target sent upstream. Defaults to `request.url` unchanged. */
+  readonly path?: string
+
   /**
    * A body already read from the request. When present it is sent instead of
    * piping, and content-length is restated to match — a rewritten body almost
@@ -68,7 +71,7 @@ export async function proxyHttp(
   response: ServerResponse,
   options: ProxyRequestOptions,
 ): Promise<void> {
-  const upstream = new URL(request.url ?? '/', options.target)
+  const upstream = new URL(options.path ?? request.url ?? '/', options.target)
   const headers = forwardableHeaders(request.headers)
   if (options.body !== undefined) headers['content-length'] = String(options.body.byteLength)
 
@@ -110,9 +113,9 @@ export async function proxyUpgrade(
   request: IncomingMessage,
   socket: Duplex,
   head: Buffer,
-  options: ProxyTarget,
+  options: ProxyTarget & { readonly path?: string },
 ): Promise<void> {
-  const upstream = new URL(request.url ?? '/', options.target)
+  const upstream = new URL(options.path ?? request.url ?? '/', options.target)
   const headers = forwardableHeaders(request.headers)
 
   await new Promise<void>((resolve, reject) => {
