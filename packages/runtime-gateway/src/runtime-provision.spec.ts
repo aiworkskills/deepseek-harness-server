@@ -46,6 +46,37 @@ describe('runtime provisioning layout', () => {
     expect(layout.configRoot).toBe('/opt/app/dsh-config')
   })
 
+  it('links this repository connector by default, at its scoped profile path', () => {
+    const layout = runtimeLayout(options, 'subject-key', principal)
+    expect(layout.plugins.map(plugin => plugin.packageName))
+      .toEqual(['@dshserver/dsh-integration', '@dshserver/dsh-preferences'])
+    expect(layout.plugins[0]!.link)
+      .toBe('/srv/dshserver/.runtime/users/subject-key/home/profiles/node_modules/@dshserver/dsh-integration')
+    expect(layout.plugins[0]!.artifacts).toEqual(['dist/index.js'])
+    // The preferences plugin has a browser half, so both bundles must exist.
+    expect(layout.plugins[1]!.artifacts).toEqual(['dist/index.js', 'dist/client.js'])
+  })
+
+  it('lets a deployment ship its own plugins instead of this repository connector', () => {
+    const layout = runtimeLayout({
+      ...options,
+      runtimePlugins: [{ packageName: '@acme/agent-tools', root: '/opt/acme/agent-tools' }],
+    }, 'subject-key', principal)
+    expect(layout.plugins).toHaveLength(1)
+    expect(layout.plugins[0]!.root).toBe('/opt/acme/agent-tools')
+    expect(layout.plugins[0]!.link)
+      .toBe('/srv/dshserver/.runtime/users/subject-key/home/profiles/node_modules/@acme/agent-tools')
+  })
+
+  it('places an unscoped package at a single profile path segment', () => {
+    const layout = runtimeLayout({
+      ...options,
+      runtimePlugins: [{ packageName: 'agent-tools', root: '/opt/agent-tools' }],
+    }, 'subject-key', principal)
+    expect(layout.plugins[0]!.link)
+      .toBe('/srv/dshserver/.runtime/users/subject-key/home/profiles/node_modules/agent-tools')
+  })
+
   it('derives the child environment from trusted identity', () => {
     const layout = runtimeLayout(options, 'subject-key', principal)
     const env = runtimeEnvironment({
@@ -58,5 +89,35 @@ describe('runtime provisioning layout', () => {
     expect(env.DSHSERVER_SCOPES).toBe('assistant:use customers:read:self')
     expect(env.DSHSERVER_SETTINGS_ENABLED).toBe('0')
     expect(JSON.parse(env.DSHSERVER_EXPOSED_TOOLS!)).toEqual(['business_list_customers'])
+  })
+
+  it('gives the Runtime its own HOME so tenants never share a dotfile directory', () => {
+    const layout = runtimeLayout(options, 'subject-key', principal)
+    const env = runtimeEnvironment({
+      layout, principal, defaultModel: principal.models[0]!, internalOrigin: 'http://127.0.0.1:4173',
+    })
+    expect(env.HOME).toBe(layout.home)
+    expect(env.HOME).not.toBe(process.env.HOME)
+  })
+
+  it('keeps the sandbox read-only unless a deployment asks for the wider grant', () => {
+    const restricted = runtimeLayout(options, 'subject-key', principal)
+    expect(runtimeEnvironment({
+      layout: restricted, principal, defaultModel: principal.models[0]!, internalOrigin: 'http://127.0.0.1:4173',
+    }).DSH_PERMISSION_MODE).toBe('read-only')
+
+    const writable = runtimeLayout({ ...options, permissionMode: 'workspace-write' }, 'subject-key', principal)
+    expect(runtimeEnvironment({
+      layout: writable, principal, defaultModel: principal.models[0]!, internalOrigin: 'http://127.0.0.1:4173',
+    }).DSH_PERMISSION_MODE).toBe('workspace-write')
+  })
+
+  it('applies deployment environment over the derived values', () => {
+    const layout = runtimeLayout({ ...options, extraEnv: { ACME_REGION: 'cn-north' } }, 'subject-key', principal)
+    const env = runtimeEnvironment({
+      layout, principal, defaultModel: principal.models[0]!, internalOrigin: 'http://127.0.0.1:4173',
+    })
+    expect(env.ACME_REGION).toBe('cn-north')
+    expect(env.DSH_HOME).toBe(layout.home)
   })
 })

@@ -29,6 +29,9 @@
 | `pluginRoot` | string | `<projectRoot>/plugin` | 已构建的 `@dshserver/dsh-integration` 包目录，会被链接进 Runtime 的 Profile |
 | `preferencesRoot` | string | `<pluginRoot>/preferences` | 已构建的 `@dshserver/dsh-preferences` 包目录 |
 | `configRoot` | string | `<pluginRoot>/config` | 部署方维护的 `agent-presets/` 与 `dsh-profile/` 所在目录 |
+| `runtimePlugins` | array | 本仓库的 `dsh-integration` + `dsh-preferences` | 链接进每个 Runtime Profile 的插件包。给了值就**替换**默认两项 |
+| `permissionMode` | `'read-only'` \| `'workspace-write'` | `'read-only'` | Runtime 沙箱的文件系统授权 |
+| `extraEnv` | object | `{}` | 追加给 Runtime 子进程的环境变量，覆盖派生值 |
 | `internalOrigin` | string | 等于 `publicOrigin` | Runtime 内部访问 Broker 与业务 API 的地址 |
 | `publicHost` | string | 由 `publicOrigin` 解析 | 传给 DSH CLI 的 `--trusted-host` |
 | `idleMs` | number | `DSH_RUNTIME_IDLE_MS` 或 `900000` | 空闲回收阈值 |
@@ -48,6 +51,36 @@ const runtimes = new RuntimeManager(authority, {
   configRoot: join(projectRoot, 'dsh-config'),
 })
 ```
+
+### 换成自己的插件
+
+`runtimePlugins` 的默认值是本仓库发布的那两个包。部署方要跑自己的 Agent 时，直接给出
+自己的包列表——它替换默认值而不是追加，因为自带 Agent 的部署没有理由再带上本仓库的
+业务连接器：
+
+```ts
+const runtimes = new RuntimeManager(authority, {
+  ...defaultRuntimeOptions(projectRoot, publicOrigin, internalOrigin),
+  runtimePlugins: [
+    { packageName: '@acme/agent-tools', root: join(projectRoot, 'node_modules', '@acme', 'agent-tools') },
+  ],
+  configRoot: join(projectRoot, 'dsh-config'),
+})
+```
+
+包会被链接到 Runtime Profile 的 `node_modules/<包名>` 下，Profile 才解析得到它；
+实际加载由 `configRoot` 下 `dsh-profile/cordis.patch.yml` 的 `insert` 条目决定。
+`artifacts` 列出启动前必须存在的文件（默认 `dist/index.js`），缺失时启动会直接失败，
+而不是先起来、之后才发现插件加载不了。
+
+### 沙箱授权
+
+`permissionMode` 默认 `read-only`，适合"通过窄接口读写业务数据、本身不需要写文件"的
+Agent。若 Agent 的产出**就是**文件（例如生成文档、代码或图片），改用 `workspace-write`：
+它可以写自己的工作区，写不到别处。
+
+选择更宽的授权时要清楚：约束就从"Agent 无法动手"变成了"进程与主机隔离"。这条路径要求
+Runtime 主机本身是可牺牲的——不放数据库凭据、不放其他系统的密钥、对外无入站。
 
 Gateway 直接读取的环境变量只有四个：`DSH_SOURCE_ROOT`、`DSH_RUNTIME_IDLE_MS`、
 `DSH_RUNTIME_DISABLED`、`DSHSERVER_TENANT_KEY`。其余字段由调用方显式传入。

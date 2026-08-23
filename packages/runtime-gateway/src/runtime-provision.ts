@@ -22,12 +22,51 @@ const TENANT_SETTINGS_FILE = 'settings.yaml'
 const TENANT_CREDENTIALS_FILE = '.credentials.yaml'
 
 /**
+ * How the Runtime's sandbox treats the filesystem, passed through to DSH.
+ *
+ * `read-only` suits an Agent that reaches business data through narrow tools and
+ * has no reason to write anything; it stays the default because it is the weaker
+ * grant. `workspace-write` suits an Agent whose job is to produce files — it may
+ * write inside its own workspace and nowhere else. A deployment choosing the
+ * wider grant should be confident the Runtime host is expendable, because
+ * containment then rests on process and host isolation rather than on the Agent
+ * being unable to act.
+ */
+export type RuntimePermissionMode = 'read-only' | 'workspace-write'
+
+/**
+ * A Cordis plugin package made resolvable inside the managed Runtime.
+ *
+ * A Runtime resolves plugins from its own profile directory, so a package is
+ * usable only once it is linked there. Deployments name the packages they ship;
+ * nothing about this is specific to the connector this repository publishes.
+ */
+export interface RuntimePluginPackage {
+  /** Package name as the profile references it, e.g. `@scope/name`. */
+  readonly packageName: string
+  /** Built package root on disk. */
+  readonly root: string
+  /**
+   * Files that must exist before spawn, relative to `root`. A missing artifact
+   * then fails the start with a clear cause, rather than a Runtime that boots
+   * and only afterwards cannot load its plugin. Default `['dist/index.js']`.
+   */
+  readonly artifacts?: readonly string[]
+}
+
+/** A plugin package together with the profile path it gets linked at. */
+export interface ResolvedRuntimePlugin extends RuntimePluginPackage {
+  readonly link: string
+  readonly artifacts: readonly string[]
+}
+
+/**
  * Where one deployment keeps the parts a Runtime is assembled from.
  *
- * The three path overrides exist because this package is published on its own:
- * the defaults describe the reference deployment layout (`<projectRoot>/plugin`),
- * and a host application with a different tree names its own directories instead
- * of having to reproduce that one.
+ * The path overrides exist because this package is published on its own: the
+ * defaults describe the reference deployment layout (`<projectRoot>/plugin`),
+ * and a host application with a different tree names its own directories
+ * instead of having to reproduce that one.
  */
 export interface RuntimeLayoutOptions {
   readonly projectRoot: string
@@ -40,6 +79,23 @@ export interface RuntimeLayoutOptions {
   readonly preferencesRoot?: string
   /** Deployment-owned `agent-presets/` and `dsh-profile/`. Default `<pluginRoot>/config`. */
   readonly configRoot?: string
+  /**
+   * Plugin packages linked into every Runtime profile. A value replaces the
+   * default pair rather than adding to it: a deployment shipping its own Agent
+   * has no reason to carry this repository's connector. Default:
+   * `@dshserver/dsh-integration` and `@dshserver/dsh-preferences`, located by
+   * `pluginRoot` and `preferencesRoot`.
+   */
+  readonly runtimePlugins?: readonly RuntimePluginPackage[]
+  /** Filesystem grant for the Runtime sandbox. Default `read-only`. */
+  readonly permissionMode?: RuntimePermissionMode
+  /**
+   * Extra environment for the Runtime child, applied over the values derived
+   * here. Deployment-owned configuration only: every entry is visible to the
+   * plugins running inside the Runtime, so it must never carry another tenant's
+   * data or a secret the Agent is not meant to reach.
+   */
+  readonly extraEnv?: Readonly<Record<string, string>>
 }
 
 /** Every path one Runtime owns or links to, derived once from its stable key. */
@@ -57,10 +113,14 @@ export interface RuntimeLayout {
   readonly pluginRoot: string
   readonly preferencesRoot: string
   readonly configRoot: string
-  readonly pluginLink: string
-  readonly preferencesLink: string
+  /** Plugin packages linked into this Runtime's profile, in load order. */
+  readonly plugins: readonly ResolvedRuntimePlugin[]
+  readonly permissionMode: RuntimePermissionMode
+  readonly extraEnv: Readonly<Record<string, string>>
   readonly cli: string
 }
+
+const DEFAULT_PLUGIN_ARTIFACTS = ['dist/index.js'] as const
 
 export function runtimeLayout(options: RuntimeLayoutOptions, key: string, principal: RuntimePrincipal): RuntimeLayout {
   const root = join(options.runtimeRoot, key)
@@ -69,6 +129,12 @@ export function runtimeLayout(options: RuntimeLayoutOptions, key: string, princi
   const presetRoot = join(home, '.agent-presets')
   const pluginRoot = options.pluginRoot ?? join(options.projectRoot, 'plugin')
   const preferencesRoot = options.preferencesRoot ?? join(pluginRoot, 'preferences')
+  const declared: readonly RuntimePluginPackage[] = options.runtimePlugins ?? [
+    { packageName: '@dshserver/dsh-integration', root: pluginRoot },
+    // The preferences plugin also ships a browser bundle, and a Runtime whose
+    // client half is missing renders a broken panel rather than failing to start.
+    { packageName: '@dshserver/dsh-preferences', root: preferencesRoot, artifacts: ['dist/index.js', 'dist/client.js'] },
+  ]
   return {
     root,
     home,
@@ -83,8 +149,15 @@ export function runtimeLayout(options: RuntimeLayoutOptions, key: string, princi
     pluginRoot,
     preferencesRoot,
     configRoot: options.configRoot ?? join(pluginRoot, 'config'),
-    pluginLink: join(home, 'profiles', 'node_modules', '@dshserver', 'dsh-integration'),
-    preferencesLink: join(home, 'profiles', 'node_modules', '@dshserver', 'dsh-preferences'),
+    plugins: declared.map(plugin => ({
+      ...plugin,
+      artifacts: plugin.artifacts ?? DEFAULT_PLUGIN_ARTIFACTS,
+      // Scoped names contribute two path segments, unscoped one; `join` on the
+      // split parts keeps both correct without special-casing the scope.
+      link: join(home, 'profiles', 'node_modules', ...plugin.packageName.split('/')),
+    })),
+    permissionMode: options.permissionMode ?? 'read-only',
+    extraEnv: options.extraEnv ?? {},
     cli: join(options.dshSourceRoot, 'apps', 'cli', 'lib', 'bin.js'),
   }
 }
@@ -177,8 +250,7 @@ export async function provisionRuntimeHome(
       dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'] } },
     }, undefined, 2) + '\n'),
     writeFile(join(layout.profileDir, 'pnpm-workspace.yaml'), 'packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\n'),
-    ensurePackageLink(layout.pluginLink, layout.pluginRoot),
-    ensurePackageLink(layout.preferencesLink, layout.preferencesRoot),
+    ...layout.plugins.map(async plugin => { await ensurePackageLink(plugin.link, plugin.root) }),
   ])
   return { seededModelDefaults: patch.seeded }
 }
@@ -233,9 +305,8 @@ export async function inspectTenantConfig(layout: RuntimeLayout): Promise<Tenant
 export async function assertBuiltArtifacts(layout: RuntimeLayout): Promise<void> {
   await Promise.all([
     readFile(layout.cli),
-    readFile(join(layout.pluginRoot, 'dist', 'index.js')),
-    readFile(join(layout.preferencesRoot, 'dist', 'index.js')),
-    readFile(join(layout.preferencesRoot, 'dist', 'client.js')),
+    ...layout.plugins.flatMap(plugin =>
+      plugin.artifacts.map(async artifact => { await readFile(join(plugin.root, artifact)) })),
   ])
 }
 
@@ -252,8 +323,14 @@ export function runtimeEnvironment(inputs: RuntimeEnvironmentInputs): NodeJS.Pro
   return {
     ...process.env,
     DSH_HOME: layout.home,
+    // Without this the child inherits the Gateway's HOME, and every Runtime on
+    // the host shares one dotfile directory: `git config`, package caches and
+    // any tool that falls back to `~` would read and write the same files
+    // across tenants. Pointing it at the Runtime's own home keeps that
+    // per-Subject like the rest of the layout.
+    HOME: layout.home,
     DSH_TELEMETRY_DISABLED: '1',
-    DSH_PERMISSION_MODE: 'read-only',
+    DSH_PERMISSION_MODE: layout.permissionMode,
     DSHSERVER_PRESET_ROOT: layout.presetRoot,
     DSHSERVER_RUNTIME_LEASE_FILE: layout.leaseFile,
     DSHSERVER_INTERNAL_ORIGIN: inputs.internalOrigin,
@@ -268,5 +345,8 @@ export function runtimeEnvironment(inputs: RuntimeEnvironmentInputs): NodeJS.Pro
     DSHSERVER_MODEL_NAME: defaultModel.name ?? defaultModel.model,
     DSHSERVER_MODEL_API_KEY_ENV: defaultModel.apiKeyEnv ?? 'DEEPSEEK_API_KEY',
     DSHSERVER_MODEL_BASE_URL: defaultModel.baseURL ?? '',
+    // Last, so a deployment can correct a derived value it disagrees with —
+    // and, by the same token, can break the Runtime with a bad override.
+    ...layout.extraEnv,
   }
 }
