@@ -6,11 +6,19 @@
  * named here stays with the host.
  */
 
-/** Exact paths DSH serves at the root. */
+/**
+ * Exact paths DSH serves at the root.
+ *
+ * `/manifest.webmanifest` is deliberately absent. A browser fetches the web app
+ * manifest without credentials unless the page opts in with
+ * `crossorigin="use-credentials"`, so a gateway that requires authentication for
+ * it answers 401 to every page load — visible in the console and confusing,
+ * while nothing that matters actually failed. The manifest carries app metadata
+ * rather than user data, so the host application serves it (or does not).
+ */
 const EXACT = new Set([
   '/assistant',
   '/favicon.svg',
-  '/manifest.webmanifest',
 ])
 
 /** Prefixes DSH serves a tree under. */

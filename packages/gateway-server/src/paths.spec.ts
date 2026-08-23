@@ -12,10 +12,15 @@ describe('DSH path matching', () => {
       '/plugins/acme/panel.js',
       '/assets/index-abc123.js',
       '/favicon.svg',
-      '/manifest.webmanifest',
     ]) {
       expect(isDshHttpPath(path), path).toBe(true)
     }
+  })
+
+  it('leaves the web app manifest to the host', () => {
+    // Browsers fetch a manifest without credentials, so proxying it behind
+    // authentication turns every page load into a console 401.
+    expect(isDshHttpPath('/manifest.webmanifest')).toBe(false)
   })
 
   it('leaves the host application its own routes', () => {
