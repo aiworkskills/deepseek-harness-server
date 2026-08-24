@@ -115,10 +115,19 @@ tenantKey  = sha256(issuer \0 tenantId)[:20]
 的 `tenantKey`）直接指定 `tenantKey`，让管理员配置在换域名或换 IdP 后仍然指向同一目录，
 见[配置持久化](configuration.md#配置持久化)。
 
+### 执行后端
+
+Runtime 在**哪里**执行是部署姿态，不是本库的决定。`RuntimeManagerOptions.backend`
+接受一个 `RuntimeBackend`；管理器只关心「起一个 Runtime、告诉我它在哪监听」，以及
+三个监督者少不了的追问：还活着吗、打印了什么、停下来。
+
+默认的进程后端把 Runtime 作为网关的子进程运行——状态彼此隔离（独立 `DSH_HOME` 与
+工作区），但共享内核与 uid，适合单运营者的机器或互相信任的团队。面向互不信任用户的
+托管部署应换用带内核边界的后端（例如每 Runtime 一个容器），管理器对此无感。这与
+Kubernetes 用 RuntimeClass 委托隔离强度是同一个形状：**编排不变，隔离是参数**。
+
 ### 每个 Runtime 拥有的资源
 
-| 资源 | 路径 | 隔离级别 |
-|---|---|---|
 下表的「每用户」在给了 `workspace_id` 的部署里读作「每工作区」——同一个人的两个工作区
 各自拥有一份，互不可见。
 

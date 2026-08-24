@@ -1,9 +1,9 @@
-import { createServer } from 'node:net'
-import { spawn, type ChildProcess } from 'node:child_process'
 import { chmod, rename, writeFile } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
 
 import type { GatewayPrincipal, RuntimeLeaseIssuer, RuntimePrincipal } from './types.js'
+import type { RuntimeBackend, RuntimeHandle } from './runtime-backend.js'
+import { ProcessRuntimeBackend } from './backend-process.js'
 import { policyFingerprint, runtimeKey } from './runtime-identity.js'
 import {
   assertBuiltArtifacts, inspectTenantConfig, provisionRuntimeHome, runtimeEnvironment, runtimeLayout,
@@ -15,19 +15,17 @@ export interface RuntimeRecord {
   readonly key: string
   readonly principal: GatewayPrincipal
   readonly policyFingerprint: string
-  readonly port: number
   readonly target: string
   readonly home: string
   readonly workspace: string
   managedWorkspaceId: string
   readonly leaseFile: string
-  readonly child: ChildProcess
+  readonly handle: RuntimeHandle
   readonly startedAt: number
   lastUsedAt: number
   leaseExpiresAt: number
   leaseRefresh: Promise<void> | undefined
   status: 'starting' | 'ready' | 'stopping' | 'failed'
-  readonly logs: string[]
 }
 
 export interface RuntimeView {
@@ -35,7 +33,8 @@ export interface RuntimeView {
   readonly status: RuntimeRecord['status']
   readonly startedAt: string
   readonly lastUsedAt: string
-  readonly isolation: 'dedicated-process-and-home'
+  /** Named by the backend: what stands between this Runtime and its neighbours. */
+  readonly isolation: string
   readonly preset: string
 }
 
@@ -44,28 +43,17 @@ export interface RuntimeManagerOptions extends RuntimeLayoutOptions {
   readonly publicHost: string
   readonly idleMs: number
   readonly disabled: boolean
+  /**
+   * Where Runtimes execute. Defaults to child processes of the gateway — right
+   * for one operator's machine, wrong for hosting strangers, and deliberately a
+   * deployment decision rather than this library's.
+   */
+  readonly backend?: RuntimeBackend
   readonly log?: (message: string) => void
 }
 
 function defaultLog(message: string): void {
   process.stdout.write(`DSH Gateway: ${message}\n`)
-}
-
-async function availablePort(): Promise<number> {
-  return await new Promise((resolvePort, reject) => {
-    const server = createServer()
-    server.once('error', reject)
-    server.listen(0, '127.0.0.1', () => {
-      const address = server.address()
-      if (typeof address === 'string' || address === null) {
-        server.close()
-        reject(new Error('failed to allocate a runtime port'))
-        return
-      }
-      const port = address.port
-      server.close(error => error === undefined ? resolvePort(port) : reject(error))
-    })
-  })
 }
 
 /**
@@ -80,11 +68,9 @@ const STARTUP_LOG_LINES = 40
 async function waitForReady(record: RuntimeRecord): Promise<void> {
   const deadline = Date.now() + 45_000
   while (Date.now() < deadline) {
-    // A signalled child keeps `exitCode` null, so check both — otherwise a
-    // killed runtime is only reported once the 45s deadline runs out.
-    if (record.child.exitCode !== null || record.child.signalCode !== null) {
-      const cause = record.child.exitCode ?? record.child.signalCode
-      throw new Error(`DSH Runtime exited during startup (${cause}): ${record.logs.slice(-STARTUP_LOG_LINES).join('\n')}`)
+    const cause = record.handle.exitCause()
+    if (cause !== null) {
+      throw new Error(`DSH Runtime exited during startup (${String(cause)}): ${record.handle.logTail(STARTUP_LOG_LINES).join('\n')}`)
     }
     try {
       const response = await fetch(record.target, { signal: AbortSignal.timeout(500) })
@@ -94,7 +80,7 @@ async function waitForReady(record: RuntimeRecord): Promise<void> {
     }
     await new Promise(resolveDelay => setTimeout(resolveDelay, 150))
   }
-  throw new Error(`DSH Runtime did not become ready: ${record.logs.slice(-STARTUP_LOG_LINES).join('\n')}`)
+  throw new Error(`DSH Runtime did not become ready: ${record.handle.logTail(STARTUP_LOG_LINES).join('\n')}`)
 }
 
 async function ensureManagedWorkspace(record: RuntimeRecord): Promise<string> {
@@ -139,31 +125,33 @@ async function ensureManagedWorkspace(record: RuntimeRecord): Promise<string> {
     // A Runtime that answered the readiness probe can still die before this
     // call lands. Without this check every remaining attempt reports a bare
     // connection failure, and the crash that caused it is never reported.
-    if (record.child.exitCode !== null || record.child.signalCode !== null) {
-      const cause = record.child.exitCode ?? record.child.signalCode
+    const cause = record.handle.exitCause()
+    if (cause !== null) {
       throw new Error(
         `DSH Runtime exited before its workspace was provisioned (${String(cause)}): `
-        + record.logs.slice(-STARTUP_LOG_LINES).join('\n'),
+        + record.handle.logTail(STARTUP_LOG_LINES).join('\n'),
       )
     }
     await new Promise(resolveDelay => setTimeout(resolveDelay, 150))
   }
   throw new Error(
-    `failed to provision managed DSH workspace: ${lastFailure}\n${record.logs.slice(-STARTUP_LOG_LINES).join('\n')}`,
+    `failed to provision managed DSH workspace: ${lastFailure}\n${record.handle.logTail(STARTUP_LOG_LINES).join('\n')}`,
   )
 }
 
-/** Starts one isolated DSH process and DSH_HOME per verified OAuth Subject. */
+/** Starts one isolated DSH Runtime and DSH_HOME per verified OAuth Subject. */
 export class RuntimeManager {
   private readonly runtimes = new Map<string, RuntimeRecord>()
   private readonly starting = new Map<string, { readonly fingerprint: string; readonly promise: Promise<RuntimeRecord> }>()
   private readonly reportedTenants = new Set<string>()
   private readonly sweepTimer: NodeJS.Timeout
+  private readonly backend: RuntimeBackend
 
   constructor(
     private readonly authority: RuntimeLeaseIssuer,
     private readonly options: RuntimeManagerOptions,
   ) {
+    this.backend = options.backend ?? new ProcessRuntimeBackend()
     this.sweepTimer = setInterval(() => { void this.sweepIdle() }, Math.min(60_000, Math.max(5_000, options.idleMs / 3)))
     this.sweepTimer.unref()
   }
@@ -178,9 +166,9 @@ export class RuntimeManager {
       if (existing.leaseExpiresAt <= Date.now() + 60_000) await this.refreshLease(existing, principal)
       return existing
     }
-    // A start already in flight owns the child process behind `existing`, which
-    // is still 'starting'. Join it — stopping that record here would kill the
-    // process the pending promise is waiting on.
+    // A start already in flight owns the runtime behind `existing`, which is
+    // still 'starting'. Join it — stopping that record here would kill the
+    // runtime the pending promise is waiting on.
     const pending = this.starting.get(key)
     if (pending !== undefined) {
       if (pending.fingerprint === fingerprint) return await pending.promise
@@ -206,7 +194,7 @@ export class RuntimeManager {
       status: record.status,
       startedAt: new Date(record.startedAt).toISOString(),
       lastUsedAt: new Date(record.lastUsedAt).toISOString(),
-      isolation: 'dedicated-process-and-home',
+      isolation: this.backend.isolation,
       preset: principal.presetRole,
     }
   }
@@ -224,56 +212,36 @@ export class RuntimeManager {
     await this.reportTenantConfig(layout, provisioned.seededModelDefaults)
     await assertBuiltArtifacts(layout)
 
-    const port = await availablePort()
-    const child = spawn(process.execPath, [
-      layout.cli,
-      '--profile', 'web',
-      '--host', '127.0.0.1',
-      '--port', String(port),
-      '--trusted-host', this.options.publicHost,
-      // A managed Runtime must never reach the operator's desktop: the web
-      // profile opens the default browser on startup unless this is passed,
-      // which would also hand out a Gateway-free URL to the raw Runtime port.
-      '--no-open',
-    ], {
-      cwd: layout.workspace,
+    const handle = await this.backend.start({
+      key,
+      layout,
       env: runtimeEnvironment({
         layout,
         principal,
         defaultModel,
         internalOrigin: this.options.internalOrigin,
       }),
-      stdio: ['ignore', 'pipe', 'pipe'],
+      publicHost: this.options.publicHost,
     })
     const record: RuntimeRecord = {
       id: `runtime-${key}`,
       key,
       principal,
       policyFingerprint,
-      port,
-      target: `http://127.0.0.1:${port}`,
+      target: handle.target,
       home: layout.home,
       workspace: layout.workspace,
       managedWorkspaceId: '',
       leaseFile: layout.leaseFile,
-      child,
+      handle,
       startedAt: Date.now(),
       lastUsedAt: Date.now(),
       leaseExpiresAt: 0,
       leaseRefresh: undefined,
       status: 'starting',
-      logs: [],
     }
     this.runtimes.set(key, record)
-    const append = (source: string, chunk: Buffer): void => {
-      for (const line of chunk.toString('utf8').split('\n').filter(Boolean)) {
-        record.logs.push(`[${source}] ${line}`)
-      }
-      if (record.logs.length > 200) record.logs.splice(0, record.logs.length - 200)
-    }
-    child.stdout?.on('data', (chunk: Buffer) => { append('stdout', chunk) })
-    child.stderr?.on('data', (chunk: Buffer) => { append('stderr', chunk) })
-    child.once('exit', () => {
+    void handle.exited.then(() => {
       if (record.status !== 'stopping') record.status = 'failed'
       if (this.runtimes.get(key) === record && record.status === 'failed') this.runtimes.delete(key)
     })
@@ -343,14 +311,7 @@ export class RuntimeManager {
   private async stop(record: RuntimeRecord): Promise<void> {
     if (record.status === 'stopping') return
     record.status = 'stopping'
-    if (record.child.exitCode === null && record.child.signalCode === null) {
-      record.child.kill('SIGTERM')
-      await Promise.race([
-        new Promise<void>(resolveExit => record.child.once('exit', () => { resolveExit() })),
-        new Promise<void>(resolveTimeout => setTimeout(resolveTimeout, 5_000)),
-      ])
-      if (record.child.exitCode === null && record.child.signalCode === null) record.child.kill('SIGKILL')
-    }
+    await record.handle.stop()
     if (this.runtimes.get(record.key) === record) this.runtimes.delete(record.key)
   }
 }
