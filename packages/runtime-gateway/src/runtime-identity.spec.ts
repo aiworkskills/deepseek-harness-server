@@ -18,6 +18,26 @@ describe('runtime identity', () => {
     expect(tenantKey({ issuer: principal.issuer, tenantId: principal.tenantId })).toBe(tenantKey(principal))
   })
 
+  it('gives one Subject a separate key per workspace', () => {
+    const siteA: RuntimePrincipal = { ...principal, workspaceId: 'site-a' }
+    const siteB: RuntimePrincipal = { ...principal, workspaceId: 'site-b' }
+    expect(runtimeKey(siteA)).not.toBe(runtimeKey(siteB))
+    expect(runtimeKey(siteA)).not.toBe(runtimeKey(principal))
+    // Same tenant either way: the second axis divides workspaces, not organisations.
+    expect(tenantKey(siteA)).toBe(tenantKey(principal))
+  })
+
+  it('derives the same key as before for a deployment with no second axis', () => {
+    // Written as a literal on purpose. Every deployment that never supplies a
+    // workspace has live directories named by this value, so a refactor that
+    // quietly changes it orphans all of them — and a test that recomputed the
+    // hash the same way the code does would agree with the mistake.
+    expect(runtimeKey(principal)).toBe('5a89d52734d34c6d3951')
+    // An empty string means "no second axis" too, not a workspace named ''.
+    const blank: RuntimePrincipal = { ...principal, workspaceId: '' }
+    expect(runtimeKey(blank)).toBe('5a89d52734d34c6d3951')
+  })
+
   it('pins the tenant key when a deployment names it', () => {
     expect(tenantKey(principal, 'acme-prod')).toBe('acme-prod')
     expect(tenantKey({ issuer: 'https://login.acme.com', tenantId: 'other' }, 'acme-prod')).toBe('acme-prod')

@@ -17,7 +17,10 @@ Token Exchange——以及它们如何共同决定「这次调用能不能执行
 | Token Broker | Token Broker | 执行 Token Exchange 的内部服务，只能收缩 Scope，不能扩大 |
 | Agent Preset | Agent Preset | 服务器维护的 Agent 配置：人设、插件与工具集合 |
 | Scope | OAuth Scope | 授权粒度标识，如 `customers:read:team` |
-| Subject | `sub` | 已验证 Token 中的稳定用户标识 |
+| Issuer | `iss` | 签发这张 Token 的**身份系统**（不是人）。参与路由键，使换 IdP 后新旧身份不会互相覆盖 |
+| Subject | `sub` | Token 代表的那一个身份。通常是人，服务账号同样成立 |
+| Tenant | `tenant_id` | 共享管理员设置与凭据的**组织** |
+| Workspace | `workspace_id` | 同一 Subject 名下彼此独立的工作集（项目、站点、托管账号）。**可选**，不给即一人一个工作区 |
 | 业务 API | Resource Server | 既有业务接口，执行最终的对象级授权与审计 |
 | 对象级授权 | object-level authorization | 针对具体一条业务记录的裁决，而非接口级放行 |
 | 平台管理员 | `assistant:platform:write` | 可维护模型、凭据与租户级插件设置 |
@@ -53,6 +56,7 @@ Token 传递到业务 API。**没有任何一段 Token 会进入模型上下文�
 | `name` | string | 展示名称 |
 | `role` | string | 企业角色，用于映射 Agent Preset |
 | `tenant_id` | string | 租户标识，参与 Runtime 路由键与设置共享 |
+| `workspace_id` | string？ | **可选**。同一 Subject 名下的哪一个工作集。省略即一人一个工作区，路由键与不带此声明时完全一致 |
 | `team_id` | string | 团队标识，业务 API 用于团队范围裁决 |
 | `scope` | string | 空格分隔的 Scope 列表 |
 
@@ -93,18 +97,30 @@ DSH Web UI 使用两个 WebSocket 事件通道（`/api/events.mux` 与 `/api/eve
 ### 路由键与租户键
 
 ```text
-runtimeKey = sha256(issuer \0 tenantId \0 subject)[:20]
+runtimeKey = sha256(issuer \0 tenantId \0 subject [\0 workspaceId])[:20]
 tenantKey  = sha256(issuer \0 tenantId)[:20]
 ```
 
-`runtimeKey` 决定进程与用户私有目录；`tenantKey` 决定同租户共享的设置与凭据文件。
+`runtimeKey` 决定进程与私有目录；`tenantKey` 决定同租户共享的设置与凭据文件。
 两者都只从**已验证声明**派生，浏览器传入的任何标识都不参与。
+
+`workspaceId` 只在部署确实给了值时参与拼接。省略时结果与不存在这个维度时**完全一致**，
+因此已有部署升级后目录不变、无需迁移。
+
+多数部署一个 Subject 对应一个工作区，此时忽略这一维即可。当一个人名下有若干彼此独立
+的工作集——项目、站点、代运营的账号——才需要它。**不要拿 `tenantId` 去承担这件事**：
+`tenantId` 划分的是共享管理员配置的组织，挪作他用会在真出现组织概念时无维度可用。
 
 派生结果会随 issuer 变化，因此正式部署用 `DSHSERVER_TENANT_KEY`（或 `RuntimeManagerOptions`
 的 `tenantKey`）直接指定 `tenantKey`，让管理员配置在换域名或换 IdP 后仍然指向同一目录，
 见[配置持久化](configuration.md#配置持久化)。
 
 ### 每个 Runtime 拥有的资源
+
+| 资源 | 路径 | 隔离级别 |
+|---|---|---|
+下表的「每用户」在给了 `workspace_id` 的部署里读作「每工作区」——同一个人的两个工作区
+各自拥有一份，互不可见。
 
 | 资源 | 路径 | 隔离级别 |
 |---|---|---|

@@ -201,7 +201,17 @@ Runtime Gateway 为每个子进程生成下列环境变量
 | `DSHSERVER_CREDENTIALS_PATH` | 租户目录 | 同租户共享的 `.credentials.yaml` |
 | `DSHSERVER_EXPOSED_TOOLS` | 策略控制面 | 有效工具集合 JSON 数组 |
 | `DSHSERVER_WORKSPACE_ROOT` | Runtime 布局 | 唯一受管工作区 |
+| `DSHSERVER_TENANT_ID` | 已验证 Principal | 本 Runtime 服务的租户 |
+| `DSHSERVER_WORKSPACE_ID` | 已验证 Principal | 本 Runtime 服务的工作集。**Principal 未提供 `workspaceId` 时不设置此变量**，插件应判断存在与否，而不是比较空串 |
 | `DSHSERVER_MODEL_PROVIDER` / `_ID` / `_NAME` / `_API_KEY_ENV` / `_BASE_URL` | 部署批准的模型 | 默认模型与凭据来源 |
+
+后两项让插件知道**自己在为谁干活**。Runtime 本来就拿到了工作区、Scope 与工具白名单，
+唯独缺这三者派生自的那个身份，而任何要对接多租户后端的插件都需要它：限定请求范围、
+标注产出，或者把一个托管的配置页直接开到正确的工作集上，而不是任由它在浏览器上次
+停留的地方漫游。
+
+两个值都不是秘密——它们指的正是这个 Runtime 已被限定在其中的租户与工作集，知道它们
+不额外授予任何东西。
 
 ## 企业 Profile 补丁
 

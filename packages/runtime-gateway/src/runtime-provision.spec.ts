@@ -130,6 +130,26 @@ describe('runtime provisioning layout', () => {
     }
   })
 
+  it('tells the Runtime which identity it is acting for', () => {
+    // A plugin that talks to a multi-tenant backend has to scope its calls, and
+    // a hosted configuration page embedded by one has to open at the right
+    // working set rather than wherever the browser last left it.
+    const layout = runtimeLayout(options, 'subject-key', principal)
+    const env = runtimeEnvironment({
+      layout, principal, defaultModel: principal.models[0]!, internalOrigin: 'http://127.0.0.1:4173',
+    })
+    expect(env.DSHSERVER_TENANT_ID).toBe('acme')
+    // One workspace per Subject: absent rather than empty, so a plugin can test
+    // for presence instead of comparing against ''.
+    expect('DSHSERVER_WORKSPACE_ID' in env).toBe(false)
+
+    const scoped = { ...principal, workspaceId: 'site-a' }
+    expect(runtimeEnvironment({
+      layout: runtimeLayout(options, 'subject-key', scoped), principal: scoped,
+      defaultModel: principal.models[0]!, internalOrigin: 'http://127.0.0.1:4173',
+    }).DSHSERVER_WORKSPACE_ID).toBe('site-a')
+  })
+
   it('lets a deployment name the one secret the Runtime does need', () => {
     // A provider reads its key from the environment named by apiKeyEnv, so that
     // variable has to reach the child. extraEnv makes it a deliberate choice.

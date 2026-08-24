@@ -390,6 +390,20 @@ export function runtimeEnvironment(inputs: RuntimeEnvironmentInputs): NodeJS.Pro
     DSHSERVER_CREDENTIALS_PATH: layout.credentialsPath,
     DSHSERVER_EXPOSED_TOOLS: JSON.stringify(principal.tools),
     DSHSERVER_WORKSPACE_ROOT: layout.workspace,
+    // Who the Runtime is acting for. It already receives its workspace, its
+    // scopes and its tool allowlist — everything except the identity all three
+    // were derived from, which any plugin talking to a multi-tenant backend
+    // needs: to scope a request, to label output, or to deep-link a hosted
+    // configuration page at the right tenant instead of letting it roam.
+    //
+    // Neither value is a secret. They name the tenant and working set this
+    // Runtime is already confined to, so knowing them grants nothing.
+    DSHSERVER_TENANT_ID: principal.tenantId,
+    ...(principal.workspaceId === undefined || principal.workspaceId.length === 0
+      ? {}
+      // Absent rather than empty when there is one workspace per Subject: a
+      // plugin can then test for presence instead of comparing to ''.
+      : { DSHSERVER_WORKSPACE_ID: principal.workspaceId }),
     DSHSERVER_MODEL_PROVIDER: defaultModel.provider,
     DSHSERVER_MODEL_ID: defaultModel.model,
     DSHSERVER_MODEL_NAME: defaultModel.name ?? defaultModel.model,

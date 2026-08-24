@@ -12,9 +12,21 @@ function shortHash(value: string): string {
   return createHash('sha256').update(value).digest('hex').slice(0, 20)
 }
 
-/** Stable process/home key for one verified identity. */
-export function runtimeKey(principal: Pick<RuntimePrincipal, 'issuer' | 'tenantId' | 'subject'>): string {
-  return shortHash(`${principal.issuer}\u0000${principal.tenantId}\u0000${principal.subject}`)
+/**
+ * Stable process/home key for one verified identity.
+ *
+ * `workspaceId` joins the key only when the deployment supplies one. Appending
+ * an empty segment instead would change every key already in use and orphan the
+ * workspace behind it, for every deployment that never needed a second axis.
+ */
+export function runtimeKey(
+  principal: Pick<RuntimePrincipal, 'issuer' | 'tenantId' | 'subject' | 'workspaceId'>,
+): string {
+  const parts = [principal.issuer, principal.tenantId, principal.subject]
+  if (principal.workspaceId !== undefined && principal.workspaceId.length > 0) {
+    parts.push(principal.workspaceId)
+  }
+  return shortHash(parts.join('\u0000'))
 }
 
 /**
