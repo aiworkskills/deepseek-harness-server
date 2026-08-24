@@ -10,12 +10,13 @@ Runtime 和业务 API 对象级授权实现多用户共用。
 > 本项目由 [aiworkskills](https://github.com/aiworkskills) 维护，是 DeepSeek Harness 的
 > 第三方扩展，**与 DeepSeek 官方无关**，也未获得其背书。
 
-## 三个包
+## 四个包
 
 | 包 | 加载平面 | 作用 |
 |---|---|---|
 | [`@dshserver/dsh-integration`](packages/dsh-integration) | DSH Runtime | OAuth 委托的业务工具与执行前授权守卫 |
 | [`@dshserver/runtime-gateway`](packages/runtime-gateway) | 宿主应用 | 每用户独立 Runtime 生命周期与 DSH 管理接口锁定 |
+| [`@dshserver/gateway-server`](packages/gateway-server) | 宿主应用 | 把上面那层跑成服务:路径匹配、认证与策略顺序、RPC 拒绝、流量代理 |
 | [`@dshserver/dsh-preferences`](packages/dsh-preferences) | 浏览器 | 个人偏好、连接器设置卡片、业务页面话术送入 |
 
 外加 [`config/`](config)：部署方维护的企业 Profile 与三套 Agent Preset（员工、管理者、

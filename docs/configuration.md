@@ -1,6 +1,6 @@
 # 配置参考
 
-本文帮你查到本仓库三个包的每一个配置项：它属于哪一层、类型与默认值是什么、由谁修改、
+本文帮你查到本仓库各个包的每一个配置项：它属于哪一层、类型与默认值是什么、由谁修改、
 何时生效。取值以当前代码为准。
 
 宿主应用自身的配置（监听地址、公开域名、模型凭据等）不属于本仓库，由集成方的服务决定。
@@ -40,7 +40,7 @@
 | `log` | function | 写入 stdout | 接收租户配置诊断信息 |
 
 `pluginRoot` / `preferencesRoot` / `configRoot` 的默认值描述的是参考部署的目录约定
-（`<projectRoot>/plugin/...`）。本仓库把三个包放在 `packages/`、把部署资产放在根级
+（`<projectRoot>/plugin/...`）。本仓库把这些包放在 `packages/`、把部署资产放在根级
 `config/`，宿主应用同理——目录结构不一样时直接指定这三项，不必复制出一个 `plugin/`：
 
 ```ts
@@ -191,7 +191,7 @@ Runtime Gateway 为每个子进程生成下列环境变量
 |---|---|---|
 | `DSH_HOME` | Runtime 布局 | 用户私有的 DSH 主目录 |
 | `DSH_TELEMETRY_DISABLED` | 固定 `1` | 关闭遥测 |
-| `DSH_PERMISSION_MODE` | 固定 `read-only` | 沙箱权限模式 |
+| `DSH_PERMISSION_MODE` | `permissionMode`，默认 `read-only` | 沙箱权限模式 |
 | `DSHSERVER_PRESET_ROOT` | Runtime 布局 | 受管 Agent Preset 根目录 |
 | `DSHSERVER_RUNTIME_LEASE_FILE` | Runtime 布局 | 租约文件路径，供插件读取 |
 | `DSHSERVER_INTERNAL_ORIGIN` | Gateway 选项 | Broker 与业务 API 的内部地址 |
@@ -227,7 +227,7 @@ Runtime Gateway 为每个子进程生成下列环境变量
 | `llm-deepseek` / `llm-pi-ai` | 启用 | 保留官方 Provider，其模型目录归租户所有 |
 | `settings` / `credentials` | `path` 指向租户目录 | 同租户共享配置与凭据 |
 | `dshserver-integration-settings` | 插入 | 在 Host 平面安装租户设置命名空间 |
-| `sandbox-policy` | `mode: read-only`，固定工作区根 | 禁止沙箱提权与越界写入 |
+| `sandbox-policy` | `mode` 随 `permissionMode`，固定工作区根 | 禁止沙箱提权与越界写入 |
 | `approval` | `policy: ask` | 高风险操作需要确认 |
 | `directory-picker` | 禁用 | 移除宿主目录浏览界面 |
 | `directory-picker-browse` | 插入 | `api-gateway` 启动时必须拿到该服务；它面向模型的 `host.*` RPC 由 Gateway 拒绝，因此属于内部依赖而非用户能力 |

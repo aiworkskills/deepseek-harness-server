@@ -1,9 +1,35 @@
 # Changelog
 
 本项目遵循 [Semantic Versioning](https://semver.org/)，变更按 Keep a Changelog 的类别组织。
-三个公开包锁步发版，共用同一个版本号。
+公开包锁步发版，共用同一个版本号。
 
 ## [Unreleased]
+
+### Added
+
+- `@dshserver/gateway-server`：把 Runtime Gateway 补成可运行的服务。此前本仓库只提供
+  库，围绕它的服务器留给每个部署自行实现——匹配 DSH 路径、认证、套用策略、拒绝被锁的
+  RPC、解析 Runtime、改写 `session.create`、代理，这段顺序写错不会在测试里暴露，
+  会变成安全缺陷。认证与策略仍由宿主提供。
+- `RuntimeManagerOptions.runtimePlugins`：链接进每个 Runtime Profile 的插件包可配置。
+  此前写死为本仓库自己的两个包，第三方插件没有进入托管 Runtime 的入口。
+- `RuntimeManagerOptions.permissionMode`：沙箱授权从写死的 `read-only` 提为选项，
+  默认不变。产出本身就是文件的 Agent 可用 `workspace-write`。
+- `RuntimeManagerOptions.extraEnv`：部署方可向 Runtime 子进程追加环境变量。
+
+### Fixed
+
+- Runtime 子进程的 `HOME` 指向它自己的目录。此前继承 Gateway 的 `HOME`，同一台机器上
+  所有 Runtime 共用一个 dotfile 目录，`git config`、包缓存以及任何回退到 `~` 的工具都会
+  跨租户读写同一批文件。
+- `/assistant` 映射到 Runtime 的根路径。Runtime 在 `/` 提供其 Web 应用，`/assistant`
+  只是部署方暴露它的挂载点，原样转发会得到 404。
+- 不再对 `manifest.webmanifest` 要求鉴权。浏览器按规范抓取 manifest 时不带凭据，
+  于是每次页面加载都在控制台留下一条 401，而实际什么也没坏。
+- 启动失败时回传真实原因:审计事件带上 `cause`，工作区置备失败附上子进程输出并检查
+  子进程是否已退出，回传行数从 8 行放宽到 40 行——八行连一条栈回溯都装不下。
+- `pnpm check` 先构建再类型检查。跨包依赖的类型检查需要被依赖方的构建产物，
+  而干净检出上并不存在，CI 因此失败而本地始终通过。
 
 ## [0.1.0] - 2026-08-22
 
