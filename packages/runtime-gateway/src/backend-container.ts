@@ -17,20 +17,16 @@
  * `docker` at a filtered socket proxy in production rather than the raw
  * socket: whoever holds the raw socket owns the host.
  *
- * Path translation is the backend's one edit to the environment it is handed.
- * The manager provisions and addresses everything by host paths; inside the
- * container those same trees appear at fixed mount points, so every
- * environment value under a mapped host prefix is rewritten to match. Mounting
- * and rewriting derive from one table, which is what keeps them from ever
- * disagreeing.
+ * Trees are bind-mounted at the *same* paths they occupy on the host. Mapping
+ * them somewhere tidier looked better and was wrong: the manager speaks host
+ * paths everywhere — the child environment, and the workspace path inside the
+ * bootstrap RPC — so a remapped mount means translating in every one of those
+ * places, forever, and the first one missed fails as an ENOENT for a directory
+ * that plainly exists. Identity mounts make the question disappear.
  */
 import { request as httpRequest } from 'node:http'
 
 import type { RuntimeBackend, RuntimeHandle, RuntimeStart } from './runtime-backend.js'
-
-/** Where the per-Runtime tree and the tenant-shared tree appear in-container. */
-const RUNTIME_MOUNT = '/dsh/runtime'
-const TENANT_MOUNT = '/dsh/tenant'
 
 export interface ContainerBackendOptions {
   /** Image every Runtime container starts from. */
@@ -134,25 +130,16 @@ export function demuxDockerLogs(body: Buffer): string[] {
 }
 
 /**
- * The environment, with every host path under a mapped prefix rewritten to the
- * container's mount point. `PATH` is dropped: it names host directories, and
- * handing it to the container breaks executable lookup against the image.
+ * The environment as handed over, minus `PATH`.
+ *
+ * `PATH` names host directories; inside the image it can only break executable
+ * lookup. Everything else passes through untouched — with identity mounts the
+ * paths are already correct.
  */
-export function translateEnvironment(
-  env: NodeJS.ProcessEnv,
-  mappings: ReadonlyArray<readonly [hostPrefix: string, containerPrefix: string]>,
-): string[] {
-  const entries: string[] = []
-  for (const [name, value] of Object.entries(env)) {
-    if (value === undefined || name === 'PATH') continue
-    let translated = value
-    for (const [hostPrefix, containerPrefix] of mappings) {
-      if (translated === hostPrefix) translated = containerPrefix
-      else if (translated.startsWith(`${hostPrefix}/`)) translated = containerPrefix + translated.slice(hostPrefix.length)
-    }
-    entries.push(`${name}=${translated}`)
-  }
-  return entries
+export function containerEnvironment(env: NodeJS.ProcessEnv): string[] {
+  return Object.entries(env)
+    .filter(([name, value]) => value !== undefined && name !== 'PATH')
+    .map(([name, value]) => `${name}=${String(value)}`)
 }
 
 export class ContainerRuntimeBackend implements RuntimeBackend {
@@ -164,10 +151,6 @@ export class ContainerRuntimeBackend implements RuntimeBackend {
     const { options } = this
     const port = options.port ?? 3082
     const name = `dsh-runtime-${start.key}`
-    const mappings: ReadonlyArray<readonly [string, string]> = [
-      [start.layout.root, RUNTIME_MOUNT],
-      [start.layout.tenantConfigDir, TENANT_MOUNT],
-    ]
     // The Runtime's `/api` fence only accepts authorities it was told about, and
     // two different callers arrive by two different names: browser traffic
     // carries the deployment's public host through the gateway proxy, while the
@@ -178,18 +161,18 @@ export class ContainerRuntimeBackend implements RuntimeBackend {
     const authority = `${name}:${String(port)}`
     const create = {
       Image: options.image,
-      Env: translateEnvironment(start.env, mappings),
+      Env: containerEnvironment(start.env),
       Cmd: containerCommand(options.cli, port, [start.publicHost, authority]),
       ...(options.entrypoint === undefined ? {} : { Entrypoint: [...options.entrypoint] }),
-      WorkingDir: translatePath(start.layout.workspace, mappings),
+      WorkingDir: start.layout.workspace,
       Labels: { 'dshserver.runtime-key': start.key },
       HostConfig: {
         Binds: [
-          `${start.layout.root}:${RUNTIME_MOUNT}`,
+          `${start.layout.root}:${start.layout.root}`,
           // Read-only unless this Subject administers the platform: "ordinary
           // users cannot reconfigure models or credentials" becomes a mount
           // fact instead of a UI promise.
-          `${start.layout.tenantConfigDir}:${TENANT_MOUNT}${start.canConfigureDsh ? '' : ':ro'}`,
+          `${start.layout.tenantConfigDir}:${start.layout.tenantConfigDir}${start.canConfigureDsh ? '' : ':ro'}`,
           ...(options.extraBinds ?? []),
         ],
         NetworkMode: options.network,
@@ -265,17 +248,6 @@ export class ContainerRuntimeBackend implements RuntimeBackend {
       },
     }
   }
-}
-
-function translatePath(
-  path: string,
-  mappings: ReadonlyArray<readonly [hostPrefix: string, containerPrefix: string]>,
-): string {
-  for (const [hostPrefix, containerPrefix] of mappings) {
-    if (path === hostPrefix) return containerPrefix
-    if (path.startsWith(`${hostPrefix}/`)) return containerPrefix + path.slice(hostPrefix.length)
-  }
-  return path
 }
 
 /** The Harness listens one port below the container's published one. */

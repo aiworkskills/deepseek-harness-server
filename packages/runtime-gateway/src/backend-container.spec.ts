@@ -11,7 +11,7 @@ import { createServer, type IncomingMessage, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { ContainerRuntimeBackend, containerCommand, demuxDockerLogs, translateEnvironment } from './backend-container.js'
+import { ContainerRuntimeBackend, containerCommand, containerEnvironment, demuxDockerLogs } from './backend-container.js'
 import { runtimeLayout } from './runtime-provision.js'
 import type { RuntimeStart } from './runtime-backend.js'
 import type { RuntimePrincipal } from './types.js'
@@ -159,22 +159,23 @@ describe('container runtime backend', () => {
     const backend = await backendFor(await engine.listen())
     await backend.start(startFor())
     const { HostConfig } = createBody(engine.calls)
-    expect(HostConfig.Binds).toContain(`${layout.root}:/dsh/runtime`)
-    expect(HostConfig.Binds).toContain(`${layout.tenantConfigDir}:/dsh/tenant:ro`)
+    expect(HostConfig.Binds).toContain(`${layout.root}:${layout.root}`)
+    expect(HostConfig.Binds).toContain(`${layout.tenantConfigDir}:${layout.tenantConfigDir}:ro`)
   })
 
   it('lets a platform administrator write the tenant tree', async () => {
     const backend = await backendFor(await engine.listen())
     await backend.start(startFor({ canConfigureDsh: true }))
     const { HostConfig } = createBody(engine.calls)
-    expect(HostConfig.Binds).toContain(`${layout.tenantConfigDir}:/dsh/tenant`)
+    expect(HostConfig.Binds).toContain(`${layout.tenantConfigDir}:${layout.tenantConfigDir}`)
   })
 
-  it('rewrites host paths in the environment and drops the host PATH', async () => {
+  it('passes host paths through unchanged and drops the host PATH', async () => {
     const backend = await backendFor(await engine.listen())
     await backend.start(startFor())
     const { Env } = createBody(engine.calls)
-    expect(Env).toContain('DSH_HOME=/dsh/runtime/home')
+    // Identity mounts, so the manager's paths are already right inside.
+    expect(Env).toContain(`DSH_HOME=${layout.home}`)
     expect(Env).toContain('ACME_API_KEY=sk-test')
     // The host's PATH names host directories; inside the image it only breaks
     // executable lookup.
@@ -252,17 +253,13 @@ describe('container command', () => {
   })
 })
 
-describe('environment translation', () => {
-  it('rewrites values under a mapped prefix and leaves the rest alone', () => {
-    const entries = translateEnvironment(
-      { A: '/srv/users/k/home', B: '/srv/users/k', C: '/srv/users/k-other', D: 'plain' },
-      [['/srv/users/k', '/dsh/runtime']],
-    )
-    expect(entries).toContain('A=/dsh/runtime/home')
-    expect(entries).toContain('B=/dsh/runtime')
-    // A sibling directory that merely shares the prefix string is not inside it.
-    expect(entries).toContain('C=/srv/users/k-other')
-    expect(entries).toContain('D=plain')
+describe('container environment', () => {
+  it('drops PATH and undefined values, keeps everything else verbatim', () => {
+    const entries = containerEnvironment({ A: '/srv/users/k/home', PATH: '/host/bin', B: 'plain', C: undefined })
+    expect(entries).toContain('A=/srv/users/k/home')
+    expect(entries).toContain('B=plain')
+    expect(entries.some(entry => entry.startsWith('PATH='))).toBe(false)
+    expect(entries.some(entry => entry.startsWith('C='))).toBe(false)
   })
 })
 
