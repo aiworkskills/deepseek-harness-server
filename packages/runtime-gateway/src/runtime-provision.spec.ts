@@ -112,6 +112,34 @@ describe('runtime provisioning layout', () => {
     }).DSH_PERMISSION_MODE).toBe('workspace-write')
   })
 
+  it('does not hand the Gateway environment to the Runtime', () => {
+    // The Runtime executes model-directed code, so anything in its environment is
+    // readable by whoever can make it run a command. Blanket inheritance handed
+    // every Runtime the Gateway's own secrets — including its lease signing key.
+    process.env.GATEWAY_ONLY_SECRET = 'must-not-leak'
+    try {
+      const layout = runtimeLayout(options, 'subject-key', principal)
+      const env = runtimeEnvironment({
+        layout, principal, defaultModel: principal.models[0]!, internalOrigin: 'http://127.0.0.1:4173',
+      })
+      expect(env.GATEWAY_ONLY_SECRET).toBeUndefined()
+      // PATH still comes through, or the child cannot find python, git or node.
+      expect(env.PATH).toBe(process.env.PATH)
+    } finally {
+      delete process.env.GATEWAY_ONLY_SECRET
+    }
+  })
+
+  it('lets a deployment name the one secret the Runtime does need', () => {
+    // A provider reads its key from the environment named by apiKeyEnv, so that
+    // variable has to reach the child. extraEnv makes it a deliberate choice.
+    const layout = runtimeLayout({ ...options, extraEnv: { ACME_API_KEY: 'sk-test' } }, 'subject-key', principal)
+    const env = runtimeEnvironment({
+      layout, principal, defaultModel: principal.models[0]!, internalOrigin: 'http://127.0.0.1:4173',
+    })
+    expect(env.ACME_API_KEY).toBe('sk-test')
+  })
+
   it('applies deployment environment over the derived values', () => {
     const layout = runtimeLayout({ ...options, extraEnv: { ACME_REGION: 'cn-north' } }, 'subject-key', principal)
     const env = runtimeEnvironment({

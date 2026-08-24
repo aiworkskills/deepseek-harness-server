@@ -235,7 +235,20 @@ export async function provisionRuntimeHome(
     mkdir(layout.profileDir, { recursive: true }),
     mkdir(layout.tenantConfigDir, { recursive: true, mode: 0o700 }),
   ])
-  await chmod(layout.tenantConfigDir, 0o700)
+  // A Runtime's own tree carries that Subject's work and, for Agents that keep
+  // credentials in the workspace, their secrets. Default `0755` published all of
+  // it to every other process on the host.
+  //
+  // Be clear about what this does and does not buy: Runtimes share one uid, so
+  // `0700` stops other accounts and anything running as a different user — not a
+  // Runtime that deliberately reads a sibling's directory, since to the kernel it
+  // *is* the owner. Real separation between Subjects needs a uid per Runtime or a
+  // container per Runtime; this closes the accidental exposure, not the deliberate
+  // one.
+  await Promise.all([
+    chmod(layout.root, 0o700),
+    chmod(layout.tenantConfigDir, 0o700),
+  ])
 
   const patch = await composeProfilePatch(layout)
   const presetSource = join(layout.configRoot, 'agent-presets', role)
@@ -318,10 +331,47 @@ export interface RuntimeEnvironmentInputs {
 }
 
 /** The complete child environment; identity-derived values only, never model input. */
+/**
+ * Variables a child process needs from the host to run at all.
+ *
+ * Everything outside this list stays with the Gateway. The Runtime executes
+ * model-directed code, so whatever is in its environment is readable by anyone
+ * who can make it run a command — which for a filesystem-capable Agent is
+ * everyone using it. Blanket-inheriting `process.env` therefore handed every
+ * Runtime the Gateway's own secrets, including the key it signs Runtime Leases
+ * with.
+ *
+ * Deployments that need something else in the child pass it through `extraEnv`,
+ * which makes each such secret a deliberate decision rather than an accident of
+ * however the Gateway happened to be started.
+ */
+const INHERITED_ENV = [
+  'PATH',
+  'LANG', 'LANGUAGE', 'LC_ALL', 'LC_CTYPE',
+  'TZ',
+  'LD_LIBRARY_PATH',
+  // Corporate CA bundles; without these an intercepting TLS proxy breaks
+  // every outbound call the Runtime makes.
+  'SSL_CERT_FILE', 'SSL_CERT_DIR', 'NODE_EXTRA_CA_CERTS',
+  // Egress proxies. A Runtime that cannot reach its model is useless, and the
+  // proxy address is deployment topology rather than a secret.
+  'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY',
+  'http_proxy', 'https_proxy', 'no_proxy',
+] as const
+
+function inheritedEnvironment(): NodeJS.ProcessEnv {
+  const inherited: NodeJS.ProcessEnv = {}
+  for (const name of INHERITED_ENV) {
+    const value = process.env[name]
+    if (value !== undefined) inherited[name] = value
+  }
+  return inherited
+}
+
 export function runtimeEnvironment(inputs: RuntimeEnvironmentInputs): NodeJS.ProcessEnv {
   const { layout, principal, defaultModel } = inputs
   return {
-    ...process.env,
+    ...inheritedEnvironment(),
     DSH_HOME: layout.home,
     // Without this the child inherits the Gateway's HOME, and every Runtime on
     // the host shares one dotfile directory: `git config`, package caches and
@@ -347,6 +397,10 @@ export function runtimeEnvironment(inputs: RuntimeEnvironmentInputs): NodeJS.Pro
     DSHSERVER_MODEL_BASE_URL: defaultModel.baseURL ?? '',
     // Last, so a deployment can correct a derived value it disagrees with —
     // and, by the same token, can break the Runtime with a bad override.
+    //
+    // This is also where model credentials belong: a provider reads its key
+    // from the environment named by `apiKeyEnv`, so that one variable has to
+    // reach the child. Naming it here keeps it the only secret that does.
     ...layout.extraEnv,
   }
 }
