@@ -60,6 +60,7 @@ async function startWith(cliSource: string): Promise<RuntimeHandle> {
     layout,
     env: { PATH: process.env.PATH },
     publicHost: '127.0.0.1:4173',
+    canConfigureDsh: false,
   })
   handles.push(handle)
   return handle
@@ -85,14 +86,14 @@ describe('process runtime backend', () => {
         return false
       }
     })
-    await eventually(() => handle.logTail(10).some(line => line.includes('fake runtime starting')))
+    await eventually(async () => (await handle.logTail(10)).some(line => line.includes('fake runtime starting')))
   })
 
   it('reports the exit cause both synchronously and as a promise', async () => {
     const handle = await startWith(CRASHING_CLI)
     await expect(handle.exited).resolves.toBe(7)
     expect(handle.exitCause()).toBe(7)
-    expect(handle.logTail(10).join('\n')).toContain('refusing to start')
+    expect((await handle.logTail(10)).join('\n')).toContain('refusing to start')
   })
 
   it('stop() ends the child and is idempotent', async () => {

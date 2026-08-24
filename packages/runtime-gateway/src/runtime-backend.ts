@@ -26,11 +26,21 @@ export interface RuntimeStart {
    * The fully assembled child environment from `runtimeEnvironment`.
    *
    * Assembling it is the manager's job — it is derived from verified identity
-   * and deployment policy. A backend transports it, never edits it.
+   * and deployment policy. A backend transports it; the one edit it may make is
+   * translating host paths into its own execution world's paths, because the
+   * mapping between the two worlds is exactly what a backend is.
    */
   readonly env: NodeJS.ProcessEnv
   /** Public host the Runtime's web server must accept in Host headers. */
   readonly publicHost: string
+  /**
+   * Whether this Runtime may write tenant-shared settings and credentials.
+   *
+   * A backend with real boundaries uses it to mount the tenant configuration
+   * read-only for everyone else — turning "ordinary users cannot reconfigure
+   * the platform" from a UI policy into a filesystem fact.
+   */
+  readonly canConfigureDsh: boolean
 }
 
 /** One running Runtime, wherever it runs. */
@@ -51,8 +61,11 @@ export interface RuntimeHandle {
    *
    * This is how a failed start explains itself. A backend that returned
    * nothing here would reduce every startup failure to a status code.
+   * Asynchronous because remote execution worlds fetch their logs; failures
+   * here resolve to an explanatory line rather than reject — a log fetch that
+   * fails must not mask the error it was called to explain.
    */
-  logTail(lines: number): readonly string[]
+  logTail(lines: number): Promise<readonly string[]>
   /** Stop the Runtime and release what it held. Idempotent. */
   stop(): Promise<void>
 }

@@ -123,8 +123,33 @@ Runtime 在**哪里**执行是部署姿态，不是本库的决定。`RuntimeMan
 
 默认的进程后端把 Runtime 作为网关的子进程运行——状态彼此隔离（独立 `DSH_HOME` 与
 工作区），但共享内核与 uid，适合单运营者的机器或互相信任的团队。面向互不信任用户的
-托管部署应换用带内核边界的后端（例如每 Runtime 一个容器），管理器对此无感。这与
-Kubernetes 用 RuntimeClass 委托隔离强度是同一个形状：**编排不变，隔离是参数**。
+托管部署应换用带内核边界的后端，管理器对此无感。这与 Kubernetes 用 RuntimeClass
+委托隔离强度是同一个形状：**编排不变，隔离是参数**。
+
+库自带两个后端：
+
+| 后端 | 单元 | 隔离 | 适用 |
+|---|---|---|---|
+| `ProcessRuntimeBackend`（默认） | 网关子进程 | 状态隔离，共享内核与 uid | 本机开发、单运营者 |
+| `ContainerRuntimeBackend` | 每 Runtime 一个容器 | 内核命名空间 + 私有挂载集 | 托管互不信任的用户 |
+
+容器后端的要点：
+
+```ts
+new ContainerRuntimeBackend({
+  image: 'acme/agent-runtime:dev',
+  docker: 'http://docker-proxy:2375',   // 务必指向过滤后的 socket 代理,裸 socket 即宿主机 root
+  network: 'agent-net',                 // Runtime 只在内部网络可达,从不发布端口
+  cli: '/opt/deepseek-harness/apps/cli/lib/bin.js',
+  runtime: 'runsc',                     // 可选:隔离强度在这里升级,代码不变
+})
+```
+
+- 每 Runtime 目录挂载为 `/dsh/runtime`（读写），租户共享配置挂载为 `/dsh/tenant`——
+  **非平台管理员一律只读**：「普通用户不得改平台配置」从 UI 承诺变成挂载事实
+- 环境变量中的宿主路径按同一张映射表改写，挂载与改写同源，不可能互相脱节
+- 默认加固：`CapDrop: ALL`、`no-new-privileges`、内存 1 GiB、PID 256，均可覆盖
+- 同名残留容器（上一个网关留下的）在启动时替换而非收养——它的策略与租约都已过期
 
 ### 每个 Runtime 拥有的资源
 

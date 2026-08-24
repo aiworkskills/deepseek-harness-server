@@ -13,5 +13,6 @@ export type {
 } from './runtime-provision.js'
 export type { RuntimeBackend, RuntimeHandle, RuntimeStart } from './runtime-backend.js'
 export { ProcessRuntimeBackend } from './backend-process.js'
+export { ContainerRuntimeBackend, type ContainerBackendOptions } from './backend-container.js'
 export type { AllowedModel, GatewayPrincipal, RuntimeLeaseIssuer, RuntimePrincipal } from './types.js'
 export { policyFingerprint, runtimeKey, tenantKey } from './runtime-identity.js'

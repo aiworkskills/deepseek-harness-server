@@ -76,7 +76,7 @@ export class ProcessRuntimeBackend implements RuntimeBackend {
       target: `http://127.0.0.1:${String(port)}`,
       exitCause: () => cause,
       exited,
-      logTail: lines => logs.slice(-lines),
+      logTail: async lines => logs.slice(-lines),
       async stop() {
         if (cause !== null) return
         child.kill('SIGTERM')

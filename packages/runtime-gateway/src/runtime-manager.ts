@@ -70,7 +70,7 @@ async function waitForReady(record: RuntimeRecord): Promise<void> {
   while (Date.now() < deadline) {
     const cause = record.handle.exitCause()
     if (cause !== null) {
-      throw new Error(`DSH Runtime exited during startup (${String(cause)}): ${record.handle.logTail(STARTUP_LOG_LINES).join('\n')}`)
+      throw new Error(`DSH Runtime exited during startup (${String(cause)}): ${(await record.handle.logTail(STARTUP_LOG_LINES)).join('\n')}`)
     }
     try {
       const response = await fetch(record.target, { signal: AbortSignal.timeout(500) })
@@ -80,7 +80,7 @@ async function waitForReady(record: RuntimeRecord): Promise<void> {
     }
     await new Promise(resolveDelay => setTimeout(resolveDelay, 150))
   }
-  throw new Error(`DSH Runtime did not become ready: ${record.handle.logTail(STARTUP_LOG_LINES).join('\n')}`)
+  throw new Error(`DSH Runtime did not become ready: ${(await record.handle.logTail(STARTUP_LOG_LINES)).join('\n')}`)
 }
 
 async function ensureManagedWorkspace(record: RuntimeRecord): Promise<string> {
@@ -129,13 +129,13 @@ async function ensureManagedWorkspace(record: RuntimeRecord): Promise<string> {
     if (cause !== null) {
       throw new Error(
         `DSH Runtime exited before its workspace was provisioned (${String(cause)}): `
-        + record.handle.logTail(STARTUP_LOG_LINES).join('\n'),
+        + (await record.handle.logTail(STARTUP_LOG_LINES)).join('\n'),
       )
     }
     await new Promise(resolveDelay => setTimeout(resolveDelay, 150))
   }
   throw new Error(
-    `failed to provision managed DSH workspace: ${lastFailure}\n${record.handle.logTail(STARTUP_LOG_LINES).join('\n')}`,
+    `failed to provision managed DSH workspace: ${lastFailure}\n${(await record.handle.logTail(STARTUP_LOG_LINES)).join('\n')}`,
   )
 }
 
@@ -222,6 +222,7 @@ export class RuntimeManager {
         internalOrigin: this.options.internalOrigin,
       }),
       publicHost: this.options.publicHost,
+      canConfigureDsh: principal.canConfigureDsh,
     })
     const record: RuntimeRecord = {
       id: `runtime-${key}`,

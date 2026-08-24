@@ -69,7 +69,7 @@ class FakeBackend implements RuntimeBackend {
       target: this.target,
       exitCause: () => cause,
       exited,
-      logTail: lines => (this.options.logs ?? []).slice(-lines),
+      logTail: async lines => (this.options.logs ?? []).slice(-lines),
       async stop() {
         if (cause === null) {
           cause = 'stopped'
