@@ -46,6 +46,26 @@ export interface ProxyTarget {
   readonly target: string
 }
 
+/**
+ * Attach the `error` listener a detached socket cannot go without.
+ *
+ * `server.on('upgrade')` hands the socket over: from that moment the HTTP server
+ * no longer handles its errors, and `pipe()` does not forward them either. An
+ * `error` with no listener is rethrown by `EventEmitter`, so one client that
+ * goes away — a closed tab, a tunnel blip, a Runtime reaped while its channel is
+ * open — becomes an unhandled exception that ends the process, and with it every
+ * other Subject's session. A per-connection fault has to stay per-connection.
+ *
+ * `peer` is the socket on the other side of the pipe: once one end is gone the
+ * other has nowhere left to write, so it is torn down rather than left half-open.
+ */
+export function guardSocket(socket: Duplex, peer?: Duplex): void {
+  socket.on('error', () => {
+    socket.destroy()
+    if (peer !== undefined) peer.destroy()
+  })
+}
+
 /** Read a request body fully, so it can be inspected or rewritten before forwarding. */
 export async function readBody(request: IncomingMessage): Promise<Buffer> {
   const chunks: Buffer[] = []
@@ -138,11 +158,16 @@ export async function proxyUpgrade(
         if (value === undefined) continue
         for (const item of Array.isArray(value) ? value : [value]) statusLine.push(`${name}: ${item}`)
       }
+      // Before the first byte: past 101 both sockets are detached from any HTTP
+      // machinery, and a reset on either one has nowhere else to go.
+      guardSocket(upstreamSocket, socket)
+      guardSocket(socket, upstreamSocket)
       socket.write(`${statusLine.join('\r\n')}\r\n\r\n`)
       if (upstreamHead.byteLength > 0) socket.write(upstreamHead)
       upstreamSocket.pipe(socket).pipe(upstreamSocket)
       // Resolving here hands the sockets over; both ends are torn down by the
-      // pipes above once either side closes.
+      // pipes above once either side closes cleanly, and by the guards above
+      // when either one fails.
       resolve()
     })
 
@@ -161,6 +186,10 @@ export async function proxyUpgrade(
 
 /** Close an upgrade attempt with a status line, the only reply available pre-101. */
 export function endSocket(socket: Duplex, status: number, message = ''): void {
+  // The client is often already gone by the time a refusal is decided — deciding
+  // it can mean starting a Runtime first. Writing to a destroyed socket raises
+  // ERR_STREAM_DESTROYED, so say nothing when there is nobody left to say it to.
+  if (socket.destroyed) return
   const reason = message.length > 0 ? message : statusText(status)
   socket.end(`HTTP/1.1 ${status} ${reason}\r\nConnection: close\r\n\r\n`)
   socket.destroy()

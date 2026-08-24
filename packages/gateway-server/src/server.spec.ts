@@ -7,6 +7,7 @@
  */
 import { createServer, request as httpRequest, type IncomingMessage, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
+import { PassThrough } from 'node:stream'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { GatewayPrincipal, RuntimePrincipal } from '@dshserver/runtime-gateway'
@@ -147,5 +148,32 @@ describe('gateway request policy', () => {
     const { gateway, onDenied } = harness({}, async () => { throw new Error('spawn failed') })
     expect((await call(gateway, '/assistant')).status).toBe(503)
     expect(onDenied).toHaveBeenCalledWith(expect.objectContaining({ denial: 'runtime_unavailable' }))
+  })
+})
+
+describe('gateway upgrade resilience', () => {
+  it('survives a client that resets before the Runtime has resolved', async () => {
+    // The window between the `upgrade` event and the proxy taking the socket is
+    // owned by nobody, and resolving may have to start a Runtime — seconds during
+    // which a client can give up. Guarding after that await rather than before it
+    // leaves an unlistened `error` on a detached socket, which ends the process
+    // and with it every other Subject's session.
+    const { gateway } = harness()
+    const socket = new PassThrough()
+    const upgrade = { url: '/plugins/events', headers: {} } as IncomingMessage
+
+    const pending = gateway.handleUpgrade(upgrade, socket, Buffer.alloc(0))
+    expect(() => socket.emit('error', Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' })))
+      .not.toThrow()
+
+    await expect(pending).resolves.toBe(true)
+  })
+
+  it('leaves non-DSH upgrades to the host application', async () => {
+    const { gateway, runtimeFor } = harness()
+    const socket = new PassThrough()
+    const upgrade = { url: '/ws/host-app', headers: {} } as IncomingMessage
+    await expect(gateway.handleUpgrade(upgrade, socket, Buffer.alloc(0))).resolves.toBe(false)
+    expect(runtimeFor).not.toHaveBeenCalled()
   })
 })

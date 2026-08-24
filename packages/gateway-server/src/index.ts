@@ -1,5 +1,5 @@
 export { isDshHttpPath, pathnameOf, runtimeTarget } from './paths.js'
-export { endSocket, proxyHttp, proxyUpgrade, readBody } from './proxy.js'
+export { endSocket, guardSocket, proxyHttp, proxyUpgrade, readBody } from './proxy.js'
 export {
   GatewayServer,
   type GatewayAuditEvent,

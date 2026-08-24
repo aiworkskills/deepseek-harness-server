@@ -28,7 +28,7 @@ import {
 } from '@dshserver/runtime-gateway'
 
 import { isDshHttpPath, pathnameOf, runtimeTarget } from './paths.js'
-import { endSocket, proxyHttp, proxyUpgrade, readBody } from './proxy.js'
+import { endSocket, guardSocket, proxyHttp, proxyUpgrade, readBody } from './proxy.js'
 
 /** Scope without which a Runtime is never started. */
 const USE_SCOPE = 'assistant:use'
@@ -151,6 +151,13 @@ export class GatewayServer {
   async handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer): Promise<boolean> {
     const pathname = pathnameOf(request.url)
     if (!isDshHttpPath(pathname)) return false
+
+    // Before the first `await`, not after it. Resolving can take seconds — it may
+    // have to start a Runtime — and the socket belongs to nobody for that whole
+    // window: the HTTP server released it with the `upgrade` event and the proxy
+    // has not taken it yet. A client that gives up while waiting would otherwise
+    // raise an unhandled `error` and end the process.
+    guardSocket(socket)
 
     const resolved = await this.resolve(request, pathname)
     if ('denial' in resolved) {
