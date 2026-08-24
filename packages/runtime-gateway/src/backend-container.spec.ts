@@ -11,7 +11,7 @@ import { createServer, type IncomingMessage, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { ContainerRuntimeBackend, demuxDockerLogs, translateEnvironment } from './backend-container.js'
+import { ContainerRuntimeBackend, containerCommand, demuxDockerLogs, translateEnvironment } from './backend-container.js'
 import { runtimeLayout } from './runtime-provision.js'
 import type { RuntimeStart } from './runtime-backend.js'
 import type { RuntimePrincipal } from './types.js'
@@ -133,6 +133,7 @@ async function backendFor(engineUrl: string) {
 
 function createBody(calls: readonly EngineCall[]): Record<string, unknown> & {
   Env: string[]
+  Cmd: string[]
   HostConfig: { Binds: string[]; NetworkMode: string; CapDrop: string[]; Runtime?: string }
 } {
   const call = calls.find(({ url }) => url.startsWith('/containers/create'))
@@ -219,6 +220,32 @@ describe('container runtime backend', () => {
     expect(urls.some(url => url.includes('/stop'))).toBe(true)
     expect(urls.some(url => url.includes('force=true'))).toBe(true)
     expect(handle.exitCause()).not.toBeNull()
+  })
+})
+
+describe('container command', () => {
+  it('keeps the Harness on loopback and bridges the container IP to it', () => {
+    // The Harness refuses --host 0.0.0.0 by design: an Agent runtime is remote
+    // code execution and it will not bind a network interface itself. The
+    // backend must respect that, not fight it — loopback Harness, in-container
+    // forwarder on the published port.
+    const [shell, flag, script] = containerCommand('/opt/harness/cli.js', 3082, 'agent.example.com')
+    expect(shell).toBe('sh')
+    expect(flag).toBe('-c')
+    expect(script).toContain('--host 127.0.0.1')
+    expect(script).toContain('--port 3081')
+    expect(script).not.toContain('0.0.0.0",')
+    expect(script).toContain('.listen(3082,"0.0.0.0")')
+    expect(script).toContain('--trusted-host agent.example.com')
+    // exec, so the Harness is PID-signal-reachable and its exit ends the container.
+    expect(script).toContain('exec node /opt/harness/cli.js')
+  })
+
+  it('is what the created container actually runs', async () => {
+    const backend = await backendFor(await engine.listen())
+    await backend.start(startFor())
+    const body = createBody(engine.calls)
+    expect(body.Cmd).toEqual(containerCommand('/opt/harness/apps/cli/lib/bin.js', 3082, 'agent.example.com'))
   })
 })
 

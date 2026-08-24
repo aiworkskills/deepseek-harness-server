@@ -171,14 +171,7 @@ export class ContainerRuntimeBackend implements RuntimeBackend {
     const create = {
       Image: options.image,
       Env: translateEnvironment(start.env, mappings),
-      Cmd: [
-        'node', options.cli,
-        '--profile', 'web',
-        '--host', '0.0.0.0',
-        '--port', String(port),
-        '--trusted-host', start.publicHost,
-        '--no-open',
-      ],
+      Cmd: containerCommand(options.cli, port, start.publicHost),
       ...(options.entrypoint === undefined ? {} : { Entrypoint: [...options.entrypoint] }),
       WorkingDir: translatePath(start.layout.workspace, mappings),
       Labels: { 'dshserver.runtime-key': start.key },
@@ -269,4 +262,39 @@ function translatePath(
     if (path.startsWith(`${hostPrefix}/`)) return containerPrefix + path.slice(hostPrefix.length)
   }
   return path
+}
+
+/** The Harness listens one port below the container's published one. */
+const INNER_PORT_OFFSET = 1
+
+/**
+ * What the container runs: a loopback Harness behind an in-container forwarder.
+ *
+ * The Harness refuses `--host 0.0.0.0` by design — an Agent runtime is remote
+ * code execution, and it will not put that on a network interface itself. That
+ * refusal is general, so accommodating it is this backend's job, not each
+ * deployment's: the Harness binds the container's loopback as it insists, and a
+ * dependency-free node forwarder bridges the container IP to it. Same shape as
+ * the gateway in front of every Runtime, one layer further in.
+ *
+ * `node` is guaranteed (the Harness needs it) and `sh` is assumed; both hold
+ * for any image that can run a Runtime at all.
+ */
+export function containerCommand(cli: string, port: number, publicHost: string): string[] {
+  const inner = port - INNER_PORT_OFFSET
+  const forwarder =
+    'const net=require("net");'
+    + `net.createServer(c=>{const u=net.connect(${String(inner)},"127.0.0.1");`
+    + 'c.pipe(u).pipe(c);'
+    + 'c.on("error",()=>u.destroy());u.on("error",()=>c.destroy())'
+    + `}).listen(${String(port)},"0.0.0.0")`
+  const harness = [
+    'exec node', cli,
+    '--profile web',
+    '--host 127.0.0.1',
+    `--port ${String(inner)}`,
+    `--trusted-host ${publicHost}`,
+    '--no-open',
+  ].join(' ')
+  return ['sh', '-c', `node -e '${forwarder}' & ${harness}`]
 }
