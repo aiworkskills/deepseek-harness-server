@@ -168,10 +168,18 @@ export class ContainerRuntimeBackend implements RuntimeBackend {
       [start.layout.root, RUNTIME_MOUNT],
       [start.layout.tenantConfigDir, TENANT_MOUNT],
     ]
+    // The Runtime's `/api` fence only accepts authorities it was told about, and
+    // two different callers arrive by two different names: browser traffic
+    // carries the deployment's public host through the gateway proxy, while the
+    // manager's own bootstrap RPC addresses the container directly. Docker's
+    // embedded DNS resolves the container name on this network, so it is known
+    // before the container exists — unlike its address — and both names can be
+    // declared up front.
+    const authority = `${name}:${String(port)}`
     const create = {
       Image: options.image,
       Env: translateEnvironment(start.env, mappings),
-      Cmd: containerCommand(options.cli, port, start.publicHost),
+      Cmd: containerCommand(options.cli, port, [start.publicHost, authority]),
       ...(options.entrypoint === undefined ? {} : { Entrypoint: [...options.entrypoint] }),
       WorkingDir: translatePath(start.layout.workspace, mappings),
       Labels: { 'dshserver.runtime-key': start.key },
@@ -206,6 +214,9 @@ export class ContainerRuntimeBackend implements RuntimeBackend {
 
     expectOk('start container', await dockerCall(options.docker, 'POST', `/containers/${id}/start`), [204])
 
+    // Confirm it actually joined the network before handing out an address that
+    // resolves through it. A container silently outside the network would fail
+    // later as an unexplained connection error.
     const inspected = await dockerCall(options.docker, 'GET', `/containers/${id}/json`)
     expectOk('inspect container', inspected, [200])
     const details = JSON.parse(inspected.body.toString('utf8')) as {
@@ -231,7 +242,10 @@ export class ContainerRuntimeBackend implements RuntimeBackend {
       })
 
     return {
-      target: `http://${address}:${String(port)}`,
+      // Addressed by name, not by the address just verified: the name is what
+      // the Runtime's fence was told to trust, so the Host header matches
+      // without anyone having to forge it — `fetch` forbids setting Host anyway.
+      target: `http://${authority}`,
       exitCause: () => cause,
       exited,
       logTail: async lines => {
@@ -280,7 +294,7 @@ const INNER_PORT_OFFSET = 1
  * `node` is guaranteed (the Harness needs it) and `sh` is assumed; both hold
  * for any image that can run a Runtime at all.
  */
-export function containerCommand(cli: string, port: number, publicHost: string): string[] {
+export function containerCommand(cli: string, port: number, trustedHosts: readonly string[]): string[] {
   const inner = port - INNER_PORT_OFFSET
   const forwarder =
     'const net=require("net");'
@@ -293,7 +307,7 @@ export function containerCommand(cli: string, port: number, publicHost: string):
     '--profile web',
     '--host 127.0.0.1',
     `--port ${String(inner)}`,
-    `--trusted-host ${publicHost}`,
+    `--trusted-host ${trustedHosts.join(' ')}`,
     '--no-open',
   ].join(' ')
   return ['sh', '-c', `node -e '${forwarder}' & ${harness}`]

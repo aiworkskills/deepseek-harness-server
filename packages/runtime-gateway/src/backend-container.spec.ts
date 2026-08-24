@@ -145,7 +145,7 @@ describe('container runtime backend', () => {
   it('creates a hardened container on the runtime network and targets its address', async () => {
     const backend = await backendFor(await engine.listen())
     const handle = await backend.start(startFor())
-    expect(handle.target).toBe('http://172.30.0.7:3082')
+    expect(handle.target).toBe('http://dsh-runtime-subject-key:3082')
 
     const body = createBody(engine.calls)
     expect(body.Image).toBe('acme/agent-runtime:dev')
@@ -187,7 +187,7 @@ describe('container runtime backend', () => {
     engine = fakeEngine({ firstCreateConflicts: true, waitNever: true })
     const backend = await backendFor(await engine.listen())
     const handle = await backend.start(startFor())
-    expect(handle.target).toBe('http://172.30.0.7:3082')
+    expect(handle.target).toBe('http://dsh-runtime-subject-key:3082')
     const methods = engine.calls.map(({ method, url }) => `${method} ${url.split('?')[0] ?? ''}`)
     // create (409) → remove by name → create again.
     expect(methods.filter(entry => entry === 'POST /containers/create')).toHaveLength(2)
@@ -229,14 +229,16 @@ describe('container command', () => {
     // code execution and it will not bind a network interface itself. The
     // backend must respect that, not fight it — loopback Harness, in-container
     // forwarder on the published port.
-    const [shell, flag, script] = containerCommand('/opt/harness/cli.js', 3082, 'agent.example.com')
+    const [shell, flag, script] = containerCommand('/opt/harness/cli.js', 3082, ['agent.example.com', 'dsh-runtime-k:3082'])
     expect(shell).toBe('sh')
     expect(flag).toBe('-c')
     expect(script).toContain('--host 127.0.0.1')
     expect(script).toContain('--port 3081')
     expect(script).not.toContain('0.0.0.0",')
     expect(script).toContain('.listen(3082,"0.0.0.0")')
-    expect(script).toContain('--trusted-host agent.example.com')
+    // Both callers named up front: browser traffic arrives as the public host
+    // through the gateway proxy, the manager's own RPC as the container name.
+    expect(script).toContain('--trusted-host agent.example.com dsh-runtime-k:3082')
     // exec, so the Harness is PID-signal-reachable and its exit ends the container.
     expect(script).toContain('exec node /opt/harness/cli.js')
   })
@@ -245,7 +247,8 @@ describe('container command', () => {
     const backend = await backendFor(await engine.listen())
     await backend.start(startFor())
     const body = createBody(engine.calls)
-    expect(body.Cmd).toEqual(containerCommand('/opt/harness/apps/cli/lib/bin.js', 3082, 'agent.example.com'))
+    expect(body.Cmd).toEqual(containerCommand('/opt/harness/apps/cli/lib/bin.js', 3082,
+      ['agent.example.com', 'dsh-runtime-subject-key:3082']))
   })
 })
 
