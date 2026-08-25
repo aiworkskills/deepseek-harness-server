@@ -90,6 +90,27 @@
     - id: dshserver-preferences
       name: '@dshserver/dsh-preferences'
 
+# Files a session produced, opened in the browser rather than handed to the
+# server's desktop. `workspaces.openPath` targets the *host machine*, which in a
+# hosted deployment has no desktop and nobody sitting at it — so a user told
+# "article.html is ready" could only ever get a refusal. Takes over that one
+# exit, which is the one all three surfaces share: badges, file mentions and
+# tool rows are fixed together.
+- insert:
+    - id: dshserver-deliverables
+      name: '@dshserver/dsh-deliverables'
+
+# Who may dress this Runtime's chrome when it is embedded in someone's page.
+# Empty — the default everywhere this variable is unset — serves the route,
+# answers with no origin, and leaves every surface as DSH shipped it. A
+# deployment that has not named an origin gets the standalone product, not an
+# open door.
+- insert:
+    - id: dshserver-embed-chrome
+      name: '@dshserver/dsh-embed-chrome'
+      config:
+        hostOrigin: !!js process.env.DSHSERVER_EMBED_HOST_ORIGIN
+
 - id: ui-agent-preset
   disabled: true
 

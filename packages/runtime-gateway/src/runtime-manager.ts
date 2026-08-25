@@ -23,6 +23,20 @@ export interface RuntimeRecord {
   readonly handle: RuntimeHandle
   readonly startedAt: number
   lastUsedAt: number
+  /**
+   * Live proxied connections — open SSE responses and upgraded sockets.
+   *
+   * `lastUsedAt` alone cannot answer "is this Runtime in use". It moves only
+   * when the gateway resolves a Runtime for a NEW request, and a working agent
+   * generates none: the browser is holding a stream opened minutes ago, the
+   * model calls go outbound from the Runtime, and the tools run inside it. So a
+   * turn that takes longer than `idleMs` looked exactly like an abandoned one,
+   * and the sweep destroyed the container mid-task.
+   *
+   * A connection is the honest signal: someone is attached right now. The idle
+   * clock restarts when the last one goes away.
+   */
+  connections: number
   leaseExpiresAt: number
   leaseRefresh: Promise<void> | undefined
   status: 'starting' | 'ready' | 'stopping' | 'failed'
@@ -237,6 +251,7 @@ export class RuntimeManager {
       handle,
       startedAt: Date.now(),
       lastUsedAt: Date.now(),
+      connections: 0,
       leaseExpiresAt: 0,
       leaseRefresh: undefined,
       status: 'starting',
@@ -304,8 +319,29 @@ export class RuntimeManager {
     }
   }
 
-  private async sweepIdle(): Promise<void> {
-    const expired = [...this.runtimes.values()].filter(record => Date.now() - record.lastUsedAt >= this.options.idleMs)
+  /**
+   * Mark a Runtime as carrying one live connection; the returned function releases it.
+   *
+   * The release is idempotent — an upgraded socket can emit both `close` and an
+   * error, and a double decrement would let the sweep reap a Runtime that still
+   * has clients attached.
+   */
+  attach(record: RuntimeRecord): () => void {
+    record.connections += 1
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      record.connections -= 1
+      // The idle clock starts when the last client leaves, not when it arrived.
+      if (record.connections === 0) record.lastUsedAt = Date.now()
+    }
+  }
+
+  /** @internal Exported for tests; the constructor's timer is the only caller in production. */
+  async sweepIdle(): Promise<void> {
+    const expired = [...this.runtimes.values()].filter(record =>
+      record.connections === 0 && Date.now() - record.lastUsedAt >= this.options.idleMs)
     await Promise.all(expired.map(async record => { await this.stop(record) }))
   }
 

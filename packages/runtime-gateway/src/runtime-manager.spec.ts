@@ -98,7 +98,7 @@ afterEach(async () => {
   await rm(scratch, { recursive: true, force: true })
 })
 
-async function makeManager(backend: RuntimeBackend): Promise<RuntimeManager> {
+async function makeManager(backend: RuntimeBackend, idleMs = 60_000): Promise<RuntimeManager> {
   // A real provisioning pass needs a readable CLI file and one plugin artifact;
   // the fake backend never executes either.
   const cli = join(scratch, 'harness', 'apps', 'cli', 'lib', 'bin.js')
@@ -118,7 +118,7 @@ async function makeManager(backend: RuntimeBackend): Promise<RuntimeManager> {
       runtimePlugins: [{ packageName: '@test/plugin', root: pluginRoot, artifacts: ['dist/index.js'] }],
       internalOrigin: origin,
       publicHost: '127.0.0.1:4173',
-      idleMs: 60_000,
+      idleMs,
       disabled: false,
       backend,
       log: () => {},
@@ -164,5 +164,59 @@ describe('runtime manager lifecycle', () => {
     await manager.runtime(principal)
     await manager.close()
     expect(backend.stopped).toHaveLength(1)
+  })
+})
+
+describe('idle reclamation counts connections, not clock alone', () => {
+  it('keeps a Runtime whose client is still attached', async () => {
+    // The bug this replaces: `lastUsedAt` only moves when the gateway resolves
+    // a Runtime for a NEW request, and a working agent generates none — the
+    // browser holds a stream opened minutes ago, the model calls go outbound,
+    // the tools run inside the container. So any turn longer than idleMs looked
+    // abandoned and the sweep killed it mid-task, cutting the event stream.
+    const manager = await makeManager(new FakeBackend(origin), 1)
+    const record = await manager.runtime(principal)
+    const detach = manager.attach(record)
+    record.lastUsedAt = Date.now() - 60_000
+
+    await manager.sweepIdle()
+    expect(record.status).toBe('ready')
+    expect(manager.view(principal)).toBeDefined()
+
+    // Releasing restarts the countdown rather than expiring on the spot, so the
+    // clock has to run out again before the Runtime is reclaimable.
+    detach()
+    await manager.sweepIdle()
+    expect(manager.view(principal)).toBeDefined()
+
+    record.lastUsedAt = Date.now() - 60_000
+    await manager.sweepIdle()
+    expect(manager.view(principal)).toBeUndefined()
+  })
+
+  it('restarts the idle clock when the last client leaves', async () => {
+    const manager = await makeManager(new FakeBackend(origin), 60_000)
+    const record = await manager.runtime(principal)
+    record.lastUsedAt = Date.now() - 600_000
+    const detach = manager.attach(record)
+    detach()
+    // Releasing is what starts the countdown, so a long-running turn does not
+    // arrive at its own end already expired.
+    expect(Date.now() - record.lastUsedAt).toBeLessThan(1_000)
+  })
+
+  it('counts each client once, however its socket ends', async () => {
+    // An upgraded socket can emit both `close` and an error; a double decrement
+    // would let the sweep reap a Runtime other clients are still using.
+    const manager = await makeManager(new FakeBackend(origin), 1)
+    const record = await manager.runtime(principal)
+    const first = manager.attach(record)
+    manager.attach(record)
+    first()
+    first()
+    record.lastUsedAt = Date.now() - 60_000
+
+    await manager.sweepIdle()
+    expect(manager.view(principal)).toBeDefined()
   })
 })

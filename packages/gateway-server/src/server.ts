@@ -138,6 +138,11 @@ export class GatewayServer {
       }
     }
 
+    // Held for the whole exchange, which for an event stream is the whole
+    // session: `proxyHttp` settles when the upstream response ends. Without it
+    // the idle sweep counts a Runtime streaming events to an open browser as
+    // unused, and stops it mid-turn.
+    const detach = this.runtimes.attach(resolved.runtime)
     try {
       await proxyHttp(request, response, {
         target: resolved.runtime.target,
@@ -149,6 +154,8 @@ export class GatewayServer {
       // waiting on a response nobody will send. Answer instead of hanging.
       if (!response.headersSent) respond(response, 502, 'runtime_unreachable')
       else response.destroy()
+    } finally {
+      detach()
     }
     return true
   }
@@ -177,6 +184,11 @@ export class GatewayServer {
       endSocket(socket, statusFor(resolved.denial))
       return true
     }
+    // Released on socket close, not when the proxy settles: `proxyUpgrade`
+    // resolves as soon as the two sockets are piped together, while the
+    // connection it just handed over lives on for the rest of the session.
+    const detach = this.runtimes.attach(resolved.runtime)
+    socket.once('close', detach)
     try {
       await proxyUpgrade(request, socket, head, {
         target: resolved.runtime.target,
@@ -184,6 +196,7 @@ export class GatewayServer {
       })
     } catch {
       endSocket(socket, 502)
+      detach()
     }
     return true
   }
