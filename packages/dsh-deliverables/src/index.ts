@@ -13,8 +13,8 @@
  * hoped for.
  */
 import { createReadStream } from 'node:fs'
-import { readdir, realpath, stat } from 'node:fs/promises'
-import { join, relative, resolve, sep } from 'node:path'
+import { realpath, stat } from 'node:fs/promises'
+import { resolve, sep } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { SessionId } from '@deepseek-ai/dsh-session'
@@ -26,14 +26,12 @@ import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 
 import {
-  DELIVERABLE_FILE_ROUTE, DELIVERABLE_LIST_ROUTE, contentTypeOf, deliverableKind,
-  parseDeliverableRequest, parseListRequest, type DeliverableEntry,
+  DELIVERABLE_FILE_ROUTE, contentTypeOf, parseDeliverableRequest,
 } from './contract.js'
 
 export {
-  DELIVERABLE_FILE_ROUTE, DELIVERABLE_LIST_ROUTE, contentTypeOf, deliverableFileUrl,
-  deliverableKind, deliverableListUrl, extensionOf, parseDeliverableRequest, parseListRequest,
-  type DeliverableEntry, type DeliverableKind,
+  DELIVERABLE_FILE_ROUTE, contentTypeOf, deliverableFileUrl, deliverableKind, extensionOf,
+  parseDeliverableRequest, type DeliverableKind,
 } from './contract.js'
 
 export const name = 'dshserver-deliverables'
@@ -71,62 +69,6 @@ export async function confineToWorkspace(workspace: string, path: string): Promi
     return null
   }
   return real === root || real.startsWith(`${root}${sep}`) ? real : null
-}
-
-/**
- * Directory names never worth listing.
- *
- * Dot-directories hold the machinery — `.git`, and the configuration a
- * deployment materializes — and dependency trees are enormous and not anyone's
- * deliverable. Walking them would bury the three files a user came to see.
- */
-const SKIP_DIRECTORIES = new Set(['node_modules', '__pycache__', '.venv', 'venv', 'dist', 'build'])
-
-/** Bounds on one listing: a workspace is not a filesystem browser. */
-const MAX_ENTRIES = 500
-const MAX_DEPTH = 6
-
-/** Files in one workspace, newest first. Bounded in breadth and in depth. */
-export async function listWorkspace(workspace: string): Promise<readonly DeliverableEntry[]> {
-  let root: string
-  try {
-    root = await realpath(workspace)
-  } catch {
-    return []
-  }
-  const found: DeliverableEntry[] = []
-  const walk = async (directory: string, depth: number): Promise<void> => {
-    if (depth > MAX_DEPTH || found.length >= MAX_ENTRIES) return
-    let entries
-    try {
-      entries = await readdir(directory, { withFileTypes: true })
-    } catch {
-      // An unreadable directory is not a reason to fail the whole listing.
-      return
-    }
-    for (const entry of entries) {
-      if (found.length >= MAX_ENTRIES) return
-      if (entry.name.startsWith('.') || SKIP_DIRECTORIES.has(entry.name)) continue
-      const full = join(directory, entry.name)
-      // Descend only into real directories: following a symlinked one could
-      // walk out of the workspace, and the listing would name what the file
-      // route then refuses to serve.
-      if (entry.isDirectory()) {
-        await walk(full, depth + 1)
-        continue
-      }
-      if (!entry.isFile()) continue
-      try {
-        const info = await stat(full)
-        const path = relative(root, full).split(sep).join('/')
-        found.push({ path, size: info.size, modified: info.mtimeMs, kind: deliverableKind(path) })
-      } catch {
-        // Vanished between readdir and stat; the agent is still working.
-      }
-    }
-  }
-  await walk(root, 0)
-  return found.sort((left, right) => right.modified - left.modified)
 }
 
 function fail(response: ServerResponse, status: number, error: string): void {
@@ -187,34 +129,6 @@ export function createDeliverableHandler(lookup: SessionLookup) {
   }
 }
 
-/** @internal Exported for tests; `apply` wires this to the web server. */
-export function createListHandler(lookup: SessionLookup) {
-  return async function handler(request: IncomingMessage, response: ServerResponse): Promise<void> {
-    if (request.method !== 'GET') {
-      response.setHeader('Allow', 'GET')
-      fail(response, 405, 'method-not-allowed')
-      return
-    }
-    const sessionId = parseListRequest(request.url ?? DELIVERABLE_LIST_ROUTE)
-    if (sessionId === null) {
-      fail(response, 400, 'session-required')
-      return
-    }
-    const workspace = lookup(sessionId)
-    if (workspace === undefined) {
-      fail(response, 404, 'session-not-active')
-      return
-    }
-    const body = JSON.stringify({ files: await listWorkspace(workspace) })
-    response.writeHead(200, {
-      'content-type': 'application/json; charset=utf-8',
-      'content-length': Buffer.byteLength(body),
-      'cache-control': 'no-store',
-    })
-    response.end(body)
-  }
-}
-
 export function apply(ctx: Context): void {
   const lookup: SessionLookup = sessionId => ctx.agents.get(sessionId as SessionId)?.session.header.cwd
   ctx.effect(() => ctx.webServer.register({
@@ -222,9 +136,4 @@ export function apply(ctx: Context): void {
     path: DELIVERABLE_FILE_ROUTE,
     handler: createDeliverableHandler(lookup),
   }), 'dshserver-deliverables: produced-file route')
-  ctx.effect(() => ctx.webServer.register({
-    kind: 'prefix',
-    path: DELIVERABLE_LIST_ROUTE,
-    handler: createListHandler(lookup),
-  }), 'dshserver-deliverables: workspace listing route')
 }

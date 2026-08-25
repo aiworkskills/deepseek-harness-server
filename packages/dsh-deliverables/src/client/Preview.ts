@@ -13,8 +13,6 @@ import { basename } from './basename.js'
 export interface PreviewProps {
   readonly sessionId: string
   readonly path: string
-  /** Back to the listing; the panel stays open. */
-  readonly onBack: () => void
   readonly onClose: () => void
 }
 
@@ -72,7 +70,7 @@ function body(kind: ReturnType<typeof deliverableKind>, url: string, text: strin
   }, text)
 }
 
-export function Preview({ sessionId, path, onBack, onClose }: PreviewProps) {
+export function Preview({ sessionId, path, onClose }: PreviewProps) {
   const kind = deliverableKind(path)
   const url = deliverableFileUrl(sessionId, path)
   const { text, error } = useFileText(url, kind !== 'html' && kind !== 'image' && kind !== 'binary')
@@ -88,7 +86,6 @@ export function Preview({ sessionId, path, onBack, onClose }: PreviewProps) {
     // and the header stays short.
     h('span', { title: path, style: { fontSize: '13px', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, basename(path)),
     h('span', { style: { display: 'flex', gap: '10px', flexShrink: 0 } },
-      h('button', { type: 'button', onClick: onBack, style: { fontSize: '12px', cursor: 'pointer', background: 'none', border: 'none', color: 'inherit' } }, '返回'),
       h('a', { href: url, download: true, style: { fontSize: '12px' } }, '下载'),
       h('button', { type: 'button', onClick: onClose, style: { fontSize: '12px', cursor: 'pointer', background: 'none', border: 'none', color: 'inherit' } }, '关闭'))),
     h('div', { style: { flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'auto' } },

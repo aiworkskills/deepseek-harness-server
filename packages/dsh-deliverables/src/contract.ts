@@ -13,28 +13,6 @@
  */
 export const DELIVERABLE_FILE_ROUTE = '/plugins/dshserver/deliverables/file'
 
-/**
- * Where the workspace listing is served from.
- *
- * A listing rather than a per-turn chip row: the accumulator that decides what
- * one turn "produced" lives in DSH's own deliverables plugin and is not part of
- * its published surface, so a second implementation would have to re-derive it
- * from internal event shapes and would drift the moment they changed. What a
- * session actually wrote is answerable from the workspace itself, needs no
- * coupling, and shows work from earlier turns too.
- */
-export const DELIVERABLE_LIST_ROUTE = '/plugins/dshserver/deliverables/list'
-
-/** One file in a workspace listing. */
-export interface DeliverableEntry {
-  /** Workspace-relative, forward-slashed. */
-  readonly path: string
-  readonly size: number
-  /** Last modification, epoch milliseconds; the listing is newest first. */
-  readonly modified: number
-  readonly kind: DeliverableKind
-}
-
 /** How the browser half decides what to render. */
 export type DeliverableKind = 'html' | 'image' | 'markdown' | 'text' | 'json' | 'binary'
 
@@ -96,11 +74,6 @@ export function contentTypeOf(path: string): string {
   return CONTENT_TYPES[extensionOf(path)] ?? 'application/octet-stream'
 }
 
-/** URL of the listing for one session's workspace. */
-export function deliverableListUrl(sessionId: string): string {
-  return `${DELIVERABLE_LIST_ROUTE}/${encodeURIComponent(sessionId)}`
-}
-
 /** URL for one produced file inside one session's workspace. */
 export function deliverableFileUrl(sessionId: string, path: string): string {
   const relative = path.replace(/^[/\\]+/, '').split(/[/\\]+/).map(encodeURIComponent).join('/')
@@ -110,11 +83,6 @@ export function deliverableFileUrl(sessionId: string, path: string): string {
 /** Parse a request path back into its session and workspace-relative path. */
 export function parseDeliverableRequest(url: string): { sessionId: string; path: string } | null {
   return parseUnder(url, DELIVERABLE_FILE_ROUTE, 2)
-}
-
-/** The session a listing request names, or null when the URL is not one. */
-export function parseListRequest(url: string): string | null {
-  return parseUnder(url, DELIVERABLE_LIST_ROUTE, 1)?.sessionId ?? null
 }
 
 function parseUnder(url: string, route: string, minimum: number): { sessionId: string; path: string } | null {

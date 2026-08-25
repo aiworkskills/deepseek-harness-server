@@ -9,10 +9,9 @@ import { join } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { confineToWorkspace, createDeliverableHandler, createListHandler, listWorkspace } from '../src/index.js'
+import { confineToWorkspace, createDeliverableHandler } from '../src/index.js'
 import {
-  DELIVERABLE_FILE_ROUTE, contentTypeOf, deliverableFileUrl, deliverableKind, deliverableListUrl,
-  parseDeliverableRequest, parseListRequest,
+  DELIVERABLE_FILE_ROUTE, contentTypeOf, deliverableFileUrl, deliverableKind, parseDeliverableRequest,
 } from '../src/contract.js'
 
 let root: string
@@ -159,47 +158,3 @@ describe('kind and content type', () => {
   })
 })
 
-describe('workspace listing', () => {
-  it('lists files newest first and leaves machinery out', async () => {
-    await mkdir(join(workspace, 'node_modules', 'pkg'), { recursive: true })
-    await mkdir(join(workspace, '.aws-article'), { recursive: true })
-    await writeFile(join(workspace, 'node_modules', 'pkg', 'index.js'), 'x')
-    await writeFile(join(workspace, '.aws-article', 'config.yaml'), 'secret: 1')
-    await writeFile(join(workspace, 'newest.txt'), 'later')
-
-    const files = await listWorkspace(workspace)
-    const paths = files.map(file => file.path)
-    expect(paths).toContain('drafts/article.html')
-    expect(paths).toContain('newest.txt')
-    // Dependency trees and dot-directories are machinery, not deliverables —
-    // and the dot ones hold the configuration a deployment materialized.
-    expect(paths.some(path => path.startsWith('node_modules/'))).toBe(false)
-    expect(paths.some(path => path.startsWith('.aws-article/'))).toBe(false)
-    // Newest first, so the file just written is the one at hand.
-    expect(paths[0]).toBe('newest.txt')
-  })
-
-  it('does not follow a symlinked directory out of the workspace', async () => {
-    // The listing must not name what the file route would then refuse to serve.
-    await symlink(outside, join(workspace, 'linked'), 'dir')
-    const paths = (await listWorkspace(workspace)).map(file => file.path)
-    expect(paths.some(path => path.includes('secret.txt'))).toBe(false)
-  })
-
-  it('serves the listing for an active session only', async () => {
-    const handler = createListHandler(sessionId => (sessionId === 's1' ? workspace : undefined))
-    const ok = mockResponse()
-    await handler({ method: 'GET', url: deliverableListUrl('s1') } as IncomingMessage, ok.res)
-    expect(ok.captured.status).toBe(200)
-    expect(JSON.parse(ok.captured.body).files.length).toBeGreaterThan(0)
-
-    const unknown = mockResponse()
-    await handler({ method: 'GET', url: deliverableListUrl('other') } as IncomingMessage, unknown.res)
-    expect(unknown.captured.status).toBe(404)
-  })
-
-  it('parses a listing URL and declines a file URL', () => {
-    expect(parseListRequest(deliverableListUrl('s1'))).toBe('s1')
-    expect(parseListRequest(deliverableFileUrl('s1', 'a.txt'))).toBeNull()
-  })
-})
