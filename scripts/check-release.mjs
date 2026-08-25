@@ -35,12 +35,24 @@ if (rootPackage.license !== 'MIT') fail('根 package.json 必须声明 MIT Licen
 
 /* --------------------------------------------------------- public packages -- */
 
+// Every package that is published. A new package added here inherits the whole
+// gate below; one left out is published with none of it — which is the failure
+// mode this list exists to prevent, so it is checked against the workspace.
 const publicPackages = [
   'packages/dsh-integration',
   'packages/runtime-gateway',
   'packages/gateway-server',
   'packages/dsh-preferences',
+  'packages/dsh-deliverables',
 ]
+
+for (const entry of readdirSync(join(root, 'packages'), { withFileTypes: true })) {
+  if (!entry.isDirectory()) continue
+  const dir = `packages/${entry.name}`
+  if (publicPackages.includes(dir)) continue
+  if (readJson(`${dir}/package.json`).private === true) continue
+  fail(`${dir} 不是 private，却没有列进 publicPackages —— 它会绕过下面所有发布检查`)
+}
 
 // Every check below inspects build output, so an unbuilt tree would report a
 // wall of misleading "missing export target" failures instead of the real cause.
@@ -113,7 +125,7 @@ for (const packageDir of publicPackages) {
 }
 
 if (versions.size !== 1) {
-  fail(`三个公开包必须锁步发版，当前版本为 ${[...versions].join(', ')}`)
+  fail(`${publicPackages.length} 个公开包必须锁步发版，当前版本为 ${[...versions].join(', ')}`)
 }
 
 /* ------------------------------------------------------------ secret scan -- */

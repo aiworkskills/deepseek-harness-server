@@ -82,21 +82,15 @@ export function deliverableFileUrl(sessionId: string, path: string): string {
 
 /** Parse a request path back into its session and workspace-relative path. */
 export function parseDeliverableRequest(url: string): { sessionId: string; path: string } | null {
-  return parseUnder(url, DELIVERABLE_FILE_ROUTE, 2)
-}
-
-function parseUnder(url: string, route: string, minimum: number): { sessionId: string; path: string } | null {
   const pathname = new URL(url, 'http://localhost').pathname
-  if (!pathname.startsWith(`${route}/`)) return null
-  const rest = pathname.slice(route.length + 1)
-  const segments = rest.split('/').filter(segment => segment !== '')
-  if (segments.length < minimum) return null
+  if (!pathname.startsWith(`${DELIVERABLE_FILE_ROUTE}/`)) return null
+  const segments = pathname.slice(DELIVERABLE_FILE_ROUTE.length + 1).split('/').filter(segment => segment !== '')
   const [rawSession, ...rawPath] = segments
+  if (rawSession === undefined || rawPath.length === 0) return null
   try {
-    const sessionId = decodeURIComponent(rawSession as string)
+    const sessionId = decodeURIComponent(rawSession)
     const path = rawPath.map(decodeURIComponent).join('/')
-    if (sessionId === '' || (minimum > 1 && path === '')) return null
-    return { sessionId, path }
+    return sessionId === '' || path === '' ? null : { sessionId, path }
   } catch {
     // A malformed percent-escape is not a path we can resolve.
     return null

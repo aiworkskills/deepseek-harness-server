@@ -63,6 +63,25 @@ packages/dsh-preferences/src/theme.ts           浏览器本地主题偏好
 时冲刷暂存。写入使用 DSH 原生输入机的唯一草稿写入路径，因此发送始终是用户动作——嵌入
 页面能填写输入框，不能让智能体开口。
 
+## 产物预览
+
+```text
+packages/dsh-deliverables/src/contract.ts   路由形状与类型判定（两个平面共享）
+packages/dsh-deliverables/src/index.ts      Host 平面：工作区收敛后按只读流服务文件
+packages/dsh-deliverables/src/client.ts     浏览器平面：接管 workspaces.openPath
+packages/dsh-deliverables/src/client/       预览渲染、选中态与工作区相对路径换算
+```
+
+它只做一件事：改变「打开文件」在托管部署里的**去向**。DSH 的产物徽章、正文里的文件提及
+和工具行共用 `workspaces.openPath`，而那个方法把路径交给 Host 的桌面打开器——托管服务器
+上没有桌面。接管这一个方法，三个界面一起修好；落在当前会话工作区之外的路径原样交回原
+实现，插件卸载时恢复。
+
+`contract.ts` 是两个平面唯一共享的模块，路由**路径式而非查询式**：产物 HTML 用相对路径
+引用配图，查询式路由会让每一处相对引用落到本路由不提供的地址上。`index.ts` 的
+`confineToWorkspace` 在 realpath **之后**比较，因此工作区内一条指向外面的符号链接不构成
+逃逸——这是本包唯一的安全断言。
+
 ## 配置所有权
 
 | 配置 | 拥有者 | 运行期变更 |
