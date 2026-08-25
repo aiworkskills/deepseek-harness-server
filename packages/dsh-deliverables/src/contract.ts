@@ -13,6 +13,20 @@
  */
 export const DELIVERABLE_FILE_ROUTE = '/plugins/dshserver/deliverables/file'
 
+/**
+ * This plugin's shadowing rank in the `details` slot (ascending, lowest renders).
+ *
+ * The preview is a *transient overlay*: the registration is held only while a
+ * file is open and released on close, so it sits well below the default rank (0)
+ * and a persistent panel gets its seat back the moment the preview closes.
+ *
+ * Exported rather than written inline at the registration, because the number is
+ * an assembly-time fact: DSH throws on a second registration at the same slot and
+ * the same rank, naming the occupant. A deployment stacking another details panel
+ * needs to be able to read this to know whether the two collide, and which wins.
+ */
+export const DETAILS_PRIORITY = -20
+
 /** How the browser half decides what to render. */
 export type DeliverableKind = 'html' | 'image' | 'markdown' | 'text' | 'json' | 'binary'
 

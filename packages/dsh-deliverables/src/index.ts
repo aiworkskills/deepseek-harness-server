@@ -30,8 +30,8 @@ import {
 } from './contract.js'
 
 export {
-  DELIVERABLE_FILE_ROUTE, contentTypeOf, deliverableFileUrl, deliverableKind, extensionOf,
-  parseDeliverableRequest, type DeliverableKind,
+  DELIVERABLE_FILE_ROUTE, DETAILS_PRIORITY, contentTypeOf, deliverableFileUrl, deliverableKind,
+  extensionOf, parseDeliverableRequest, type DeliverableKind,
 } from './contract.js'
 
 export const name = 'dshserver-deliverables'

@@ -25,6 +25,7 @@ import { createElement as h, useSyncExternalStore } from 'react'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 
+import { DETAILS_PRIORITY } from './contract.js'
 import { Preview } from './client/Preview.js'
 import { createSelectionStore } from './client/store.js'
 
@@ -64,11 +65,9 @@ export function apply(ctx: ClientContext): void {
     // The details panel is a single seat, so the registration is held only
     // while a preview is open — otherwise this plugin would keep the seat from
     // whatever else a deployment puts there for the rest of the session.
-    // `priority` is a shadowing rank where the lowest renders, so this sits in
-    // front of a workbench registered at the default or at -10.
     mounted ??= ctx.slots.inject('details', () => ctx.slots.register({
       name: 'details',
-      priority: -20,
+      priority: DETAILS_PRIORITY,
     }, DetailsPreview))
     ctx.layout.openDetails()
   }
