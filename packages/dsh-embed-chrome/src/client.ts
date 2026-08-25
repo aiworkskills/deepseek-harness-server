@@ -82,17 +82,42 @@ export function apply(ctx: ClientContext): void {
     }, state.headline)
   }
 
+  /**
+   * Take the brand seats now, before the page has answered.
+   *
+   * Registering only on the first answer meant the stock mark and the
+   * `DSH Local Build <sha>` fallback rendered for the whole round trip —
+   * another product's identity, flashing in this one's frame on every load.
+   * Being framed at all is a synchronous fact, so the seats are claimed
+   * synchronously and render nothing until there is something to say.
+   *
+   * The trade is deliberate: a deployment that composes this plugin, frames the
+   * Runtime, and then never implements the page side gets a blank brand instead
+   * of DSH's. `release()` below restores the fallback for the one case we can
+   * actually detect — no configured origin.
+   */
+  const claimBrand = (): void => {
+    brandMounted ??= ctx.slots.inject('sidebar.brand.name', () =>
+      ctx.slots.inject('sidebar.brand.mark', function* () {
+        yield ctx.slots.register({ name: 'sidebar.brand.name' }, BrandSlot)
+        yield ctx.slots.register({ name: 'sidebar.brand.mark' }, MarkSlot)
+      }))
+  }
+
+  const release = (): void => {
+    heroStyle?.()
+    heroStyle = undefined
+    heroMounted?.()
+    heroMounted = undefined
+    brandMounted?.()
+    brandMounted = undefined
+  }
+
   const receive = (state: Parameters<typeof store.set>[0]): void => {
     store.set(state)
-    // Registered on first answer and kept: unlike a transient preview, chrome
-    // is the frame the user reads the whole session through.
-    if ((state.brand !== undefined || (state.workspaces?.length ?? 0) > 1) && brandMounted === undefined) {
-      brandMounted = ctx.slots.inject('sidebar.brand.name', () =>
-        ctx.slots.inject('sidebar.brand.mark', function* () {
-          yield ctx.slots.register({ name: 'sidebar.brand.name' }, BrandSlot)
-          yield ctx.slots.register({ name: 'sidebar.brand.mark' }, MarkSlot)
-        }))
-    }
+    claimBrand()
+    // The hero rule hides DSH's own headline, so it may only exist once we have
+    // one to put there — otherwise the hero would render empty.
     if (state.headline !== undefined && heroMounted === undefined) {
       heroStyle = installHeroStyle()
       heroMounted = ctx.slots.inject('conversation.hero.brand.mark', () =>
@@ -100,9 +125,14 @@ export function apply(ctx: ClientContext): void {
     }
   }
 
+  const framed = typeof window !== 'undefined' && window.parent !== window
+  if (framed) claimBrand()
+
   void fetchHostInfo(abort.signal).then(info => {
-    if (info === null || abort.signal.aborted) return
-    link = openEmbedLink({ hostOrigin: info.hostOrigin, onState: receive }) ?? undefined
+    if (abort.signal.aborted) return
+    link = info === null ? undefined : openEmbedLink({ hostOrigin: info.hostOrigin, onState: receive }) ?? undefined
+    // Not embedded after all — hand the seats back rather than sit on them empty.
+    if (link === undefined) release()
   })
 
   ctx.effect(() => () => {

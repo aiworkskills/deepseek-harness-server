@@ -55,7 +55,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "pnpm clean && tsc -p tsconfig.json && tsc -p tsconfig.client.json --noEmit && esbuild src/client.ts --bundle --platform=browser --format=cjs --external:react --outfile=dist/client-body/client.js && node scripts/wrap-client.mjs",
+    "build": "pnpm clean && tsc -p tsconfig.json && tsc -p tsconfig.client.json --noEmit && esbuild src/client.ts --bundle --platform=browser --format=cjs --external:react --external:react-dom --outfile=dist/client-body/client.js && node scripts/wrap-client.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit && tsc -p tsconfig.test.json",
     "test": "vitest run --dir tests",
     "clean": "rm -rf dist"
@@ -66,7 +66,8 @@
     "@deepseek-ai/dsh-client-ui-conversation": ">=0.1.1-rc.2 <0.2.0",
     "@deepseek-ai/dsh-client-ui-sidebar": ">=0.1.1-rc.2 <0.2.0",
     "@deepseek-ai/dsh-host-webserver": ">=0.1.1-rc.2 <0.2.0",
-    "react": "^18.2.0"
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "4.0.1",
@@ -79,6 +80,8 @@
     "esbuild": "^0.28.2",
     "react": "18.3.1",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.8",
+    "react-dom": "18.3.1",
+    "@types/react-dom": "^18.3.0"
   }
 }

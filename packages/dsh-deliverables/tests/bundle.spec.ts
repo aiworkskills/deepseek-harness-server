@@ -13,6 +13,15 @@ import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
+/**
+ * 允许在浏览器半边保留为 external 的说明符。
+ *
+ * 只有宿主 `PRELOADED_CLIENT_EXTERNALS` 里的那几个才行 —— 它们由 DSH 页面提供，
+ * `window.__ModuleLoader__` 能解析。任何别的名字被 external 掉，运行时就是一个
+ * 解析不到的 require；被打进 bundle，则是页面上第二份 React。
+ */
+const HOST_PROVIDED = new Set(['react', 'react-dom'])
+
 const dist = (name: string): string => fileURLToPath(new URL(`../dist/${name}`, import.meta.url))
 
 /** 每个 ESM import/export 说明符，按出现顺序。 */
@@ -42,12 +51,10 @@ describe('published bundle', () => {
     const file = dist('client.js')
     if (!existsSync(file)) return
     const body = readFileSync(file, 'utf8')
-    // 客户端半边由 esbuild 打包成 CJS，外部依赖走 require()。React 由宿主提供，
-    // 是唯一允许的一个。
-    const required = new Set<string>()
+        const required = new Set<string>()
     for (const match of body.matchAll(/\brequire\(\s*["']([^"']+)["']\s*\)/g)) {
       required.add(match[1] as string)
     }
-    expect([...required].filter(name => name !== 'react')).toEqual([])
+    expect([...required].filter(name => !HOST_PROVIDED.has(name))).toEqual([])
   })
 })
