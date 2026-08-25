@@ -28,6 +28,7 @@ import {
 } from '@dshserver/runtime-gateway'
 
 import { isDshHttpPath, pathnameOf, runtimeTarget } from './paths.js'
+import { rpcIdOf, rpcRefusalBody } from './rpc-refusal.js'
 import { endSocket, guardSocket, proxyHttp, proxyUpgrade, readBody } from './proxy.js'
 
 /** Scope without which a Runtime is never started. */
@@ -76,6 +77,14 @@ export interface GatewayServerOptions {
   /** Signs the short-lived Runtime Lease each Runtime executes under. */
   readonly authority: RuntimeLeaseIssuer
   readonly runtime: RuntimeManagerOptions
+  /**
+   * What to tell a user whose RPC is locked by this deployment.
+   *
+   * Surfaced verbatim in the client's own error UI, so it is the one place a
+   * deployment can replace a wire detail with a sentence a person can act on —
+   * including in their language. Defaults to a neutral English line.
+   */
+  readonly lockedRpcMessage?: (pathname: string) => string
   /** Called for every refusal. Denials are otherwise silent. */
   readonly onDenied?: (event: GatewayAuditEvent) => void
 }
@@ -109,7 +118,11 @@ export class GatewayServer {
 
     const resolved = await this.resolve(request, pathname)
     if ('denial' in resolved) {
-      respond(response, statusFor(resolved.denial), resolved.denial)
+      if (resolved.denial === 'managed_capability_locked') {
+        await this.refuseRpc(request, response, pathname)
+      } else {
+        respond(response, statusFor(resolved.denial), resolved.denial)
+      }
       return true
     }
 
@@ -203,6 +216,34 @@ export class GatewayServer {
     } catch (error) {
       return this.deny(pathname, 'runtime_unavailable', current.subject, error)
     }
+  }
+
+  /**
+   * Answer a locked RPC inside the API's own error branch.
+   *
+   * Falls back to a plain 403 when the request is not a client RPC — a locked
+   * path fetched some other way has no conversation to answer, and inventing
+   * an envelope for it would only hide that.
+   */
+  private async refuseRpc(request: IncomingMessage, response: ServerResponse, pathname: string): Promise<void> {
+    let rpcId: string | undefined
+    try {
+      rpcId = rpcIdOf(await readBody(request))
+    } catch {
+      rpcId = undefined
+    }
+    if (rpcId === undefined) {
+      respond(response, statusFor('managed_capability_locked'), 'managed_capability_locked')
+      return
+    }
+    const message = this.options.lockedRpcMessage?.(pathname)
+      ?? `${pathname} is not available in this deployment: the capability is managed by the gateway.`
+    const body = rpcRefusalBody(rpcId, message)
+    response.writeHead(200, {
+      'content-type': 'application/json',
+      'content-length': Buffer.byteLength(body),
+    })
+    response.end(body)
   }
 
   private deny(

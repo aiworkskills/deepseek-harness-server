@@ -58,7 +58,9 @@ function harness(
 }
 
 /** Drive one request through a real socket so headers and status are genuine. */
-async function call(gateway: GatewayServer, path: string): Promise<{ status: number; body: string }> {
+async function call(
+  gateway: GatewayServer, path: string, payload?: unknown,
+): Promise<{ status: number; body: string }> {
   const server = createServer((request, response) => {
     void gateway.handleRequest(request, response).then(handled => {
       if (!handled) {
@@ -71,13 +73,14 @@ async function call(gateway: GatewayServer, path: string): Promise<{ status: num
   const { port } = server.address() as AddressInfo
 
   return await new Promise((resolve, reject) => {
-    const outgoing = httpRequest({ host: '127.0.0.1', port, path, method: 'GET' }, (response: IncomingMessage) => {
+    const method = payload === undefined ? 'GET' : 'POST'
+    const outgoing = httpRequest({ host: '127.0.0.1', port, path, method }, (response: IncomingMessage) => {
       let body = ''
       response.on('data', chunk => { body += String(chunk) })
       response.once('end', () => { resolve({ status: response.statusCode ?? 0, body }) })
     })
     outgoing.once('error', reject)
-    outgoing.end()
+    outgoing.end(payload === undefined ? undefined : JSON.stringify(payload))
   })
 }
 
@@ -142,6 +145,41 @@ describe('gateway request policy', () => {
     const response = await call(gateway, '/assistant')
     expect(response.status).toBe(502)
     expect(response.body).toContain('runtime_unreachable')
+  })
+
+  it('explains a locked RPC inside the API error branch so the client can show it', async () => {
+    // A bare 403 is thrown away by the DSH client before it reads the body, so
+    // the user sees "transport failure ... HTTP 403" — a wire detail that
+    // explains nothing. The refusal belongs in the protocol's own error branch,
+    // where the client already surfaces `error.message`.
+    const { gateway, onDenied } = harness({
+      lockedRpcMessage: path => `no ${path} here`,
+    })
+    const response = await call(gateway, '/api/host.openPath', {
+      type: 'client-request', rpcId: 'rpc-7', method: 'host.openPath', payload: { path: '/x' },
+    })
+    expect(response.status).toBe(200)
+    const body = JSON.parse(response.body) as {
+      type: string
+      rpcId: string
+      result: { ok: boolean; error: { code: string; message: string; details: unknown } }
+    }
+    expect(body.type).toBe('server-response')
+    // Echoed: the client rejects a mismatched id before reading the result, so
+    // a guessed one would replace the explanation with a mismatch error.
+    expect(body.rpcId).toBe('rpc-7')
+    expect(body.result.ok).toBe(false)
+    expect(body.result.error.message).toBe('no /api/host.openPath here')
+    expect(body.result.error.details).toEqual({})
+    // Still a refusal: audited, and nothing reached a Runtime.
+    expect(onDenied).toHaveBeenCalledWith(expect.objectContaining({ denial: 'managed_capability_locked' }))
+  })
+
+  it('keeps a plain 403 for a locked path that is not an RPC call', async () => {
+    // No client request means no conversation to answer; inventing an envelope
+    // would only disguise that.
+    const { gateway } = harness()
+    expect((await call(gateway, '/api/cordis.install')).status).toBe(403)
   })
 
   it('reports a Runtime that will not start as a service error, not a refusal', async () => {
