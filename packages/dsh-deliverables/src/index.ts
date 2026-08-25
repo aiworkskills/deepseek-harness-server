@@ -18,9 +18,12 @@ import { join, relative, resolve, sep } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { SessionId } from '@deepseek-ai/dsh-session'
-// Side-effect type imports: these declare `ctx.agents` and `ctx.webServer`.
-import '@deepseek-ai/dsh-agent'
-import '@deepseek-ai/dsh-host-webserver'
+// Type-only: these declare `ctx.agents` and `ctx.webServer` without emitting a
+// runtime import. A plain side-effect import would survive compilation and the
+// Runtime would die at load — the packages are type declarations, and this
+// plugin is linked into a profile, not installed with its own node_modules.
+import type {} from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-host-webserver'
 
 import {
   DELIVERABLE_FILE_ROUTE, DELIVERABLE_LIST_ROUTE, contentTypeOf, deliverableKind,
