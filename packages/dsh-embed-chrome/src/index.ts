@@ -12,7 +12,6 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import z from '@deepseek-ai/schemastery'
 // Type-only: declares `ctx.webServer` without emitting a runtime import. A
 // plain side-effect import would survive compilation, and a plugin linked into
 // a profile has no `node_modules` of its own to resolve it from.
@@ -42,9 +41,23 @@ export interface Config {
   readonly hostOrigin?: string
 }
 
-export const Config: z<Config> = z.object({
-  hostOrigin: z.string().default(''),
-})
+/**
+ * 刻意不导出 schemastery 的 `Config` 模式。
+ *
+ * 这个包以符号链接进 profile，身边没有自己的 `node_modules`：任何真实的运行时
+ * import 都会让 Runtime 以 `ERR_MODULE_NOT_FOUND` 起不来。第一版正是这么挂的 ——
+ * 一个 `z.object()` 就够了。cordis 在没有模式时原样透传配置
+ * （`if (!runtime.Config) return config`），所以校验挪进 `apply`，用普通代码做。
+ *
+ * 规矩：**profile 链接进来的插件，运行时只许 import Node 内建与 React。**
+ * `tests/bundle.spec.ts` 盯着这条。
+ */
+function readConfig(config: Config): string {
+  const value: unknown = config.hostOrigin
+  if (value === undefined) return ''
+  if (typeof value !== 'string') throw new Error(`hostOrigin must be a string, got ${typeof value}`)
+  return value
+}
 
 function handler(info: EmbedHostInfo) {
   return function respond(request: IncomingMessage, response: ServerResponse): void {
@@ -65,7 +78,7 @@ function handler(info: EmbedHostInfo) {
 }
 
 export function apply(ctx: Context, config: Config = {}): void {
-  const configured = config.hostOrigin ?? ''
+  const configured = readConfig(config)
   const hostOrigin = originOf(configured)
   if (configured.trim() !== '' && hostOrigin === null) {
     // Failing loudly at composition beats a silent no-op: a typo here reads to
