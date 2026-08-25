@@ -82,6 +82,25 @@ packages/dsh-deliverables/src/client/       预览渲染、选中态与工作区
 `confineToWorkspace` 在 realpath **之后**比较，因此工作区内一条指向外面的符号链接不构成
 逃逸——这是本包唯一的安全断言。
 
+## 嵌入方 chrome
+
+```text
+packages/dsh-embed-chrome/src/contract.ts    路由、消息信封与校验（两个平面共享）
+packages/dsh-embed-chrome/src/index.ts       Host 平面：只回答"哪个来源可以说话"
+packages/dsh-embed-chrome/src/client/link.ts 三条信任规则，不认识 React 也不认识 cordis
+packages/dsh-embed-chrome/src/client.ts      浏览器平面：品牌槽、hero 槽、工作区切换
+```
+
+Host 半边只做**信任决定**，因为它是唯一有配置的一半：`hostOrigin` 由运维写死。chrome
+本身从不经过它——由嵌入页面在运行时经 `postMessage` 给出，页面改主意不需要重启 Runtime。
+
+页面在另一个来源上（Runtime 走网关，产品在部署方域名），所以「同源」不能当判据。三条
+规则合起来才成立：来源由 Host 指定、发送方必须是自己的父窗口、只往那个来源发而绝不用
+`'*'`。第二条单独看容易漏——只验来源的话，同一来源上的另一个窗口也能给这个 Runtime
+穿衣服并递上工作区名单。
+
+`switch` 是请求而非命令：换工作区意味着换一个 Runtime、换一张令牌，只有页面能重新签发。
+
 ## 配置所有权
 
 | 配置 | 拥有者 | 运行期变更 |

@@ -44,6 +44,7 @@ const publicPackages = [
   'packages/gateway-server',
   'packages/dsh-preferences',
   'packages/dsh-deliverables',
+  'packages/dsh-embed-chrome',
 ]
 
 for (const entry of readdirSync(join(root, 'packages'), { withFileTypes: true })) {
