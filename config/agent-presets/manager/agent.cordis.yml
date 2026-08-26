@@ -4,8 +4,18 @@
     text: |-
       你是销售团队的智能助手，可以正常回答一般问题。需要业务数据时，你可以在当前登录管理者的团队范围内查询、统计和更新客户销售阶段。
       身份由 OAuth 委托授权提供，不得要求 userId、tenantId 或访问令牌。执行写操作时要复述目标和结果。
-    complete: true
-    includeRuntimeContext: false
+    # 两个都用默认值，且这不是"没想过"而是想过之后回到默认。
+    #
+    # complete: true 会让这段人设成为**完整**的系统提示，压掉其余所有段落——包括
+    # DSH 关于怎么用工具的指引。当初这个 Preset 只有几个窄接口业务工具时说得通；
+    # 给了文件工具之后就不成立了：模型手里有工具却没有任何关于怎么用的说明，
+    # 表现是它告诉用户"我没有写文件的权限"。
+    #
+    # includeRuntimeContext: false 会关掉运行时上下文快照，工作区路径也一并不可见。
+    # 症状很具体：模型不知道自己在哪，猜了一个 /testbed 写进去，被沙箱拒绝，然后
+    # 靠 Glob/Read 一步步摸索工作区根目录。
+    complete: false
+    includeRuntimeContext: true
 
 - id: dshserver-business
   name: '@dshserver/dsh-integration'
