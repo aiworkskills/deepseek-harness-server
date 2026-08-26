@@ -93,6 +93,23 @@ describe('deliverable route', () => {
     expect(result.headers['cache-control']).toBe('no-store')
   })
 
+  it('confines a produced document even when it is opened as a top-level tab', async () => {
+    const result = await call(deliverableFileUrl('s1', 'drafts/article.html'))
+    // The iframe's `sandbox` attribute cannot reach a new tab; only the
+    // response can. Without this header, "open in a new tab" would be the one
+    // path handing a model-written document the deployment's own origin —
+    // where the session cookie and the `/api` surface live.
+    expect(result.headers['content-security-policy']).toBe('sandbox allow-scripts')
+  })
+
+  it('never grants allow-same-origin alongside allow-scripts', async () => {
+    const result = await call(deliverableFileUrl('s1', 'drafts/article.html'))
+    // Both together let the document remove its own sandbox attribute, which
+    // makes the confinement decorative. This is the pair that must never ship.
+    const policy = String(result.headers['content-security-policy'] ?? '')
+    expect(policy.includes('allow-same-origin')).toBe(false)
+  })
+
   it('never serves a file outside the workspace, however the climb is spelled', async () => {
     // Two independent barriers, and it is worth knowing which one catches what.
     // Dot segments never reach this code at all: the URL parser removes them

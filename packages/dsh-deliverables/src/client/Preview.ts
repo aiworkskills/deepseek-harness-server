@@ -10,6 +10,34 @@ import { createElement as h, useEffect, useState, type ReactNode } from 'react'
 import { deliverableFileUrl, deliverableKind } from '../contract.js'
 import { basename } from './basename.js'
 
+/**
+ * Inline SVG rather than an icon package.
+ *
+ * This bundle is linked into a profile with no `node_modules` beside it, so the
+ * rule is: at runtime, import nothing but Node built-ins and React
+ * (`tests/bundle.spec.ts` holds that line). Three glyphs are not worth breaking
+ * it for.
+ */
+function icon(path: string, extra?: ReactNode): ReactNode {
+  return h('svg', {
+    width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none',
+    stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round',
+    'aria-hidden': true, focusable: false,
+  }, h('path', { d: path }), extra)
+}
+
+const OPEN_ICON = 'M15 3h6v6M10 14 21 3M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5'
+const DOWNLOAD_ICON = 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3'
+const CLOSE_ICON = 'M18 6 6 18M6 6l12 12'
+
+/** Icon-only controls need a name; the tooltip and the accessible name are the same word. */
+const ACTION_STYLE = {
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  width: '26px', height: '26px', borderRadius: '6px',
+  background: 'none', border: 'none', padding: 0,
+  color: 'inherit', cursor: 'pointer', textDecoration: 'none',
+} as const
+
 export interface PreviewProps {
   readonly sessionId: string
   readonly path: string
@@ -85,9 +113,25 @@ export function Preview({ sessionId, path, onClose }: PreviewProps) {
     // Full path in the tooltip: two turns can produce files sharing a basename,
     // and the header stays short.
     h('span', { title: path, style: { fontSize: '13px', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, basename(path)),
-    h('span', { style: { display: 'flex', gap: '10px', flexShrink: 0 } },
-      h('a', { href: url, download: true, style: { fontSize: '12px' } }, '下载'),
-      h('button', { type: 'button', onClick: onClose, style: { fontSize: '12px', cursor: 'pointer', background: 'none', border: 'none', color: 'inherit' } }, '关闭'))),
+    h('span', { style: { display: 'flex', gap: '2px', flexShrink: 0 } },
+      // Only for the kinds a browser tab can actually render as a document.
+      // The response carries `Content-Security-Policy: sandbox allow-scripts`,
+      // so the opened tab has an opaque origin — the same confinement the
+      // iframe below declares, not a way around it.
+      kind === 'html'
+        ? h('a', {
+          href: url, target: '_blank', rel: 'noopener noreferrer',
+          title: '在新标签页打开', 'aria-label': '在新标签页打开', style: ACTION_STYLE,
+        }, icon(OPEN_ICON))
+        : null,
+      h('a', {
+        href: url, download: true,
+        title: '下载', 'aria-label': '下载', style: ACTION_STYLE,
+      }, icon(DOWNLOAD_ICON)),
+      h('button', {
+        type: 'button', onClick: onClose,
+        title: '关闭', 'aria-label': '关闭', style: ACTION_STYLE,
+      }, icon(CLOSE_ICON)))),
     h('div', { style: { flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'auto' } },
       body(kind, url, text, error)))
 }

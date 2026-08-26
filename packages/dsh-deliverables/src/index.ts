@@ -120,6 +120,18 @@ export function createDeliverableHandler(lookup: SessionLookup) {
       // Produced files change as the agent works, and a stale preview reads as
       // a broken tool.
       'cache-control': 'no-store',
+      // The same confinement the preview iframe declares, but carried by the
+      // response so it survives a top-level navigation: opening a produced
+      // page in a browser tab gives it an opaque origin, exactly as framing it
+      // does. Scripts run — a produced page or game works — while the session
+      // cookie, the `/api` surface and every other same-origin document stay
+      // unreachable.
+      //
+      // Without this, "open in a new tab" would be the one path that hands a
+      // model-written document the deployment's own origin. `allow-same-origin`
+      // is deliberately absent, and adding it alongside `allow-scripts` would
+      // let the document drop its own sandbox — confinement in name only.
+      'content-security-policy': 'sandbox allow-scripts',
     })
     if (request.method === 'HEAD') {
       response.end()
