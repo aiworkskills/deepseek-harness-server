@@ -1,6 +1,20 @@
 const CONFIGURATION_SCOPE = 'assistant:platform:write'
 
-function isConfigurationRpc(pathname: string): boolean {
+/**
+ * The RPCs DSH pins to a loopback authority.
+ *
+ * Harness refuses these outright when the request carries a non-loopback
+ * `Host` — `settings.describe` is documented loopback-only upstream — because
+ * for a desktop install "the caller is local" is the whole authorization
+ * story. A managed deployment has a different one: the Gateway authenticated
+ * the user and checked `assistant:platform:write` before anything reached a
+ * Runtime, and the Runtime does in fact listen on loopback.
+ *
+ * Exported so the server in front can tell those two situations apart. Any
+ * path named here reaches a Runtime only after `blockedDshRpc` has already
+ * cleared it.
+ */
+export function isConfigurationRpc(pathname: string): boolean {
   return pathname === '/api/settings.describe'
     || pathname === '/api/settings.update'
     || pathname === '/api/settings.replace'

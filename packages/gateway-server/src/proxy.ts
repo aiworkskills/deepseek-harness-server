@@ -83,6 +83,47 @@ export interface ProxyRequestOptions extends ProxyTarget {
    * never has the length the client announced.
    */
   readonly body?: Buffer
+
+  /**
+   * Re-address the request to this authority.
+   *
+   * Off by default, and that default is the important half: Harness derives
+   * absolute URLs from `Host`, so a gateway that rewrote it everywhere would
+   * hand out links pointing at `127.0.0.1`. Set it only where the upstream
+   * treats a particular authority as an authorization signal and the caller
+   * has already been authorized by other means.
+   *
+   * Setting it also drops `Origin` and `Sec-Fetch-Site`, and that is not a
+   * separate decision — it follows. Both headers describe the browser's
+   * relationship to the authority it *thought* it was addressing. Once that
+   * authority is replaced they no longer describe anything the upstream can
+   * check, and forwarding them guarantees a mismatch: an upstream comparing
+   * `Origin` against `Host` sees two different authorities and refuses. The
+   * protection they carry — CSRF and DNS rebinding — has to have been
+   * re-established by whoever sets this, which is why it is off by default.
+   */
+  readonly host?: string
+}
+
+/**
+ * Headers that describe the caller's relationship to the authority it
+ * addressed. Meaningless — and actively harmful — once that authority is
+ * replaced. See {@link ProxyRequestOptions.host}.
+ */
+const AUTHORITY_BOUND = ['origin', 'sec-fetch-site']
+
+/**
+ * The loopback authority naming a Runtime reachable at `target`.
+ *
+ * Keeps `target`'s port and throws its hostname away, and that asymmetry is
+ * the whole point: the container backend addresses a Runtime by container
+ * name, which is not loopback and would fail the very check this value exists
+ * to satisfy. The header does not have to name the host we connect to — the
+ * socket still goes to `target` — and only the header is read.
+ */
+export function loopbackAuthorityOf(target: string): string {
+  const port = new URL(target).port
+  return port === '' ? '127.0.0.1' : `127.0.0.1:${port}`
 }
 
 /** Forward one HTTP request upstream and stream the response back. */
@@ -93,6 +134,10 @@ export async function proxyHttp(
 ): Promise<void> {
   const upstream = new URL(options.path ?? request.url ?? '/', options.target)
   const headers = forwardableHeaders(request.headers)
+  if (options.host !== undefined) {
+    headers.host = options.host
+    for (const name of AUTHORITY_BOUND) delete headers[name]
+  }
   if (options.body !== undefined) headers['content-length'] = String(options.body.byteLength)
 
   await new Promise<void>((resolve, reject) => {

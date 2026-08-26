@@ -1,4 +1,4 @@
-export { blockedDshRpc, prepareSessionCreateBody } from './gateway-policy.js'
+export { blockedDshRpc, isConfigurationRpc, prepareSessionCreateBody } from './gateway-policy.js'
 export {
   defaultRuntimeOptions,
   RuntimeManager,

@@ -11,7 +11,7 @@ import { connect, type AddressInfo, type Socket } from 'node:net'
 import { PassThrough } from 'node:stream'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { endSocket, guardSocket, proxyUpgrade } from './proxy.js'
+import { endSocket, guardSocket, loopbackAuthorityOf, proxyUpgrade } from './proxy.js'
 
 /** `emit('error')` throws when nothing is listening, which is the whole point here. */
 const reset = () => Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' })
@@ -115,5 +115,19 @@ describe('an established channel over real sockets', () => {
     }
 
     expect(escaped).toEqual([])
+  })
+})
+
+describe('loopback authority', () => {
+  it('keeps the port and discards the hostname', () => {
+    // 容器后端按容器名寻址 —— 那不是回环,原封不动转发就会被上游拒掉,
+    // 而这正是这个值存在的理由。
+    expect(loopbackAuthorityOf('http://dsh-runtime-9f3a1c:41234')).toBe('127.0.0.1:41234')
+    expect(loopbackAuthorityOf('http://127.0.0.1:41234')).toBe('127.0.0.1:41234')
+    expect(loopbackAuthorityOf('http://runtime.internal:8080')).toBe('127.0.0.1:8080')
+  })
+
+  it('omits the port when the target has none', () => {
+    expect(loopbackAuthorityOf('http://runtime.internal')).toBe('127.0.0.1')
   })
 })

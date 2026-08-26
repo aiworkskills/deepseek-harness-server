@@ -60,6 +60,8 @@ function harness(
 /** Drive one request through a real socket so headers and status are genuine. */
 async function call(
   gateway: GatewayServer, path: string, payload?: unknown,
+  /** Extra request headers — a browser sends more than these tests used to. */
+  extra: Record<string, string> = {},
 ): Promise<{ status: number; body: string }> {
   const server = createServer((request, response) => {
     void gateway.handleRequest(request, response).then(handled => {
@@ -74,7 +76,7 @@ async function call(
 
   return await new Promise((resolve, reject) => {
     const method = payload === undefined ? 'GET' : 'POST'
-    const outgoing = httpRequest({ host: '127.0.0.1', port, path, method }, (response: IncomingMessage) => {
+    const outgoing = httpRequest({ host: '127.0.0.1', port, path, method, headers: extra }, (response: IncomingMessage) => {
       let body = ''
       response.on('data', chunk => { body += String(chunk) })
       response.once('end', () => { resolve({ status: response.statusCode ?? 0, body }) })
@@ -213,5 +215,100 @@ describe('gateway upgrade resilience', () => {
     const upgrade = { url: '/ws/host-app', headers: {} } as IncomingMessage
     await expect(gateway.handleUpgrade(upgrade, socket, Buffer.alloc(0))).resolves.toBe(false)
     expect(runtimeFor).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * Harness pins `settings.*` and friends to a loopback authority: it refuses
+ * them outright when `Host` names anything else, because for a desktop install
+ * "the caller is local" *is* the authorization. Behind a gateway the caller is
+ * never local, so a platform administrator got a bare 403 and a settings page
+ * that only said "settings are unavailable in this browser".
+ *
+ * The stand-in below re-implements Harness's actual fence rather than echoing
+ * the header back. An earlier version of these tests only asserted that `Host`
+ * had been rewritten, which is not the claim that matters — it stayed green
+ * while the rewrite was still being refused upstream, for two reasons the echo
+ * could not see: the container backend addresses a Runtime by container name
+ * (not loopback), and browsers attach `Origin` to every non-GET request, which
+ * an upstream compares against `Host`.
+ */
+describe('loopback-pinned configuration RPCs', () => {
+  /**
+   * A stand-in Runtime applying the same two fences as
+   * `dsh-client-connection`'s `isTrustedApiRequest` for a channel declared
+   * `authority: 'loopback'` — that declaration empties the trusted-host list,
+   * so only a loopback `Host` passes, and an `Origin` that disagrees with it is
+   * refused. Restated here rather than imported: this package does not depend
+   * on the client runtime, and a test that cannot fail is worse than no test.
+   */
+  async function pinnedRuntime(): Promise<string> {
+    const server = createServer((request, response) => {
+      const host = request.headers.host ?? ''
+      const hostname = host.replace(/:\d+$/u, '')
+      const origin = request.headers.origin
+      const loopback = hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '[::1]'
+      const originAgrees = origin === undefined || new URL(origin).host === host
+      if (!loopback || !originAgrees || request.headers['sec-fetch-site'] === 'cross-site') {
+        response.writeHead(403).end('forbidden')
+        return
+      }
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(JSON.stringify({ host }))
+    })
+    servers.push(server)
+    await new Promise<void>(resolve => { server.listen(0, '127.0.0.1', resolve) })
+    return `http://127.0.0.1:${String((server.address() as AddressInfo).port)}`
+  }
+
+  /** Same identity, plus the scope the deployment requires for configuration. */
+  function administrator(target: string, loopbackConfigurationRpc: boolean) {
+    const scopes = ['assistant:use', 'assistant:platform:write']
+    return harness(
+      {
+        loopbackConfigurationRpc,
+        authenticate: async () => ({ ...authenticated, scopes }),
+        authorize: async () => ({ ...authorized, scopes, canConfigureDsh: true }),
+      },
+      async () => ({ target, managedWorkspaceId: 'ws-1' }),
+    )
+  }
+
+  /** What a browser actually sends: same-origin POSTs carry Origin too. */
+  const browser = { origin: 'https://agent.example.com', 'sec-fetch-site': 'same-origin' }
+
+  it('gets a configuration RPC past the pin when the deployment opts in', async () => {
+    const target = await pinnedRuntime()
+    const { gateway } = administrator(target, true)
+    const answer = await call(gateway, '/api/settings.describe', { type: 'client-request', rpcId: 'r1' }, browser)
+    expect(answer.status).toBe(200)
+    expect(JSON.parse(answer.body).host).toBe(`127.0.0.1:${new URL(target).port}`)
+  })
+
+  it('leaves the pin in place by default', async () => {
+    // Most deployments never expose DSH's own settings. Carrying a door you do
+    // not use is worse than not having it.
+    const target = await pinnedRuntime()
+    const { gateway } = administrator(target, false)
+    const answer = await call(gateway, '/api/settings.describe', { type: 'client-request', rpcId: 'r2' }, browser)
+    expect(answer.status).toBe(403)
+  })
+
+  it('forwards the caller Host everywhere else', async () => {
+    const target = await pinnedRuntime()
+    const { gateway } = administrator(target, true)
+    // Not a configuration RPC, so `Host` is untouched — and the stand-in
+    // refuses it, which is exactly right: that is what a Runtime builds its
+    // links from, and rewriting it everywhere would hand out 127.0.0.1 links.
+    const answer = await call(gateway, '/api/llm.providers', { type: 'client-request', rpcId: 'r3' }, browser)
+    expect(answer.status).toBe(403)
+  })
+
+  it('still refuses a configuration RPC without the platform scope', async () => {
+    const target = await pinnedRuntime()
+    const { gateway } = harness({ loopbackConfigurationRpc: true }, async () => ({ target, managedWorkspaceId: 'ws-1' }))
+    const answer = await call(gateway, '/api/settings.describe', { type: 'client-request', rpcId: 'r4' }, browser)
+    // The opt-in must never become a way around the deployment's own check.
+    expect(answer.body).not.toContain('"host"')
   })
 })

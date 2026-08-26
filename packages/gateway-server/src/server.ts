@@ -18,6 +18,7 @@ import type { Duplex } from 'node:stream'
 
 import {
   blockedDshRpc,
+  isConfigurationRpc,
   prepareSessionCreateBody,
   RuntimeManager,
   type GatewayPrincipal,
@@ -29,7 +30,7 @@ import {
 
 import { isDshHttpPath, pathnameOf, runtimeTarget } from './paths.js'
 import { rpcIdOf, rpcRefusalBody } from './rpc-refusal.js'
-import { endSocket, guardSocket, proxyHttp, proxyUpgrade, readBody } from './proxy.js'
+import { endSocket, guardSocket, loopbackAuthorityOf, proxyHttp, proxyUpgrade, readBody } from './proxy.js'
 
 /** Scope without which a Runtime is never started. */
 const USE_SCOPE = 'assistant:use'
@@ -85,6 +86,25 @@ export interface GatewayServerOptions {
    * including in their language. Defaults to a neutral English line.
    */
   readonly lockedRpcMessage?: (pathname: string) => string
+  /**
+   * Let a platform administrator reach the DSH settings RPCs through this gateway.
+   *
+   * Harness pins `settings.*` to a loopback authority: for a desktop install
+   * "the caller is local" *is* the authorization story, so it refuses those
+   * calls outright when `Host` names anything else. Behind a gateway the caller
+   * is never local, and an administrator gets a bare 403 and a settings page
+   * that only says settings are unavailable.
+   *
+   * Turning this on re-addresses exactly those RPCs to the Runtime's own
+   * loopback authority, which satisfies that check. The deployment's own check
+   * is the stronger one and runs first regardless: `assistant:platform:write`
+   * is required before anything reaches a Runtime, whether this is on or off.
+   *
+   * Off by default because most deployments never expose DSH's own settings —
+   * they configure the platform out of band and lock the UI. Carrying a door
+   * you do not use is worse than not having it.
+   */
+  readonly loopbackConfigurationRpc?: boolean
   /** Called for every refusal. Denials are otherwise silent. */
   readonly onDenied?: (event: GatewayAuditEvent) => void
 }
@@ -143,11 +163,28 @@ export class GatewayServer {
     // the idle sweep counts a Runtime streaming events to an open browser as
     // unused, and stops it mid-turn.
     const detach = this.runtimes.attach(resolved.runtime)
+    // Re-address the RPCs Harness pins to loopback — opt-in, see
+    // `loopbackConfigurationRpc`. Reaching this line already means the request
+    // authenticated and carried `assistant:platform:write`: `resolve` refuses
+    // everything else above, so the check satisfied here is the deployment's,
+    // not a weaker one. Every other path keeps the caller's `Host`, which is
+    // what the Runtime builds its links from.
+    //
+    // A literal loopback address, not `target`'s authority: the container
+    // backend addresses a Runtime by container name, which is not loopback and
+    // would fail the very check this exists to satisfy. The `Host` header does
+    // not have to name the host we connect to — the socket still goes to
+    // `target` — and only the header is read.
+    const loopbackAuthority = this.options.loopbackConfigurationRpc === true && isConfigurationRpc(pathname)
+      ? loopbackAuthorityOf(resolved.runtime.target)
+      : undefined
+
     try {
       await proxyHttp(request, response, {
         target: resolved.runtime.target,
         path: runtimeTarget(request.url),
         ...(body === undefined ? {} : { body }),
+        ...(loopbackAuthority === undefined ? {} : { host: loopbackAuthority }),
       })
     } catch {
       // A Runtime that died between resolution and connect leaves the client
