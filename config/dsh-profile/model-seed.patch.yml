@@ -7,9 +7,13 @@
 # survives every restart, idle recycle and upgrade. Changing the environment
 # variables below after that only affects tenants that never configured a model.
 
+# The default provider follows whichever route `cordis.patch.yml` enabled: a
+# deployment that named an endpoint gets the self-hosted one, everyone else
+# keeps DeepSeek. Naming a provider explicitly overrides both — and must then
+# match the provider key declared over there.
 - id: agent-default-model
   config:
-    provider: !!js process.env.DSHSERVER_MODEL_PROVIDER || 'deepseek-official'
+    provider: !!js "process.env.DSHSERVER_MODEL_PROVIDER || (process.env.DSHSERVER_MODEL_BASE_URL ? 'aiworkskills' : 'deepseek-official')"
     model: !!js process.env.DSHSERVER_MODEL_ID || 'deepseek-v4-flash'
 
 - id: llm-deepseek

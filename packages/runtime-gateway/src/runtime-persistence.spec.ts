@@ -111,9 +111,15 @@ describe('deployment model defaults are a first-run seed', () => {
 
     expect(report.seededModelDefaults).toBe(false)
     const patch = await readFile(join(layout.profileDir, 'cordis.patch.yml'), 'utf8')
-    expect(patch).not.toContain('DSHSERVER_MODEL_ID')
-    // The provider stays enabled and the policy entries keep applying.
+    // The seed's own entry, not a variable name. `DSHSERVER_MODEL_ID` used to
+    // stand in for "the seed ran", but it also names the model catalog inside
+    // the always-applied provider declaration — where it belongs, because a
+    // route that vanished once someone saved settings would leave the default
+    // model pointing at nothing.
+    expect(patch).not.toContain('id: agent-default-model')
+    // The provider routes stay declared and the policy entries keep applying.
     expect(patch).toContain('id: llm-deepseek')
+    expect(patch).toContain('id: llm-pi-ai')
     expect(patch).toContain('mode: read-only')
   })
 

@@ -11,13 +11,63 @@
 - id: session-title-llm
   disabled: true
 
-# Official Providers stay available; their catalogs and credentials belong to
-# the tenant, not to this overlay.
+# Two mutually exclusive model routes, selected by whether the deployment named
+# an endpoint. `DSHSERVER_MODEL_BASE_URL` set means "this deployment brings its
+# own OpenAI-compatible endpoint"; unset keeps the stock DeepSeek route.
+#
+# They are exclusive on purpose. Leaving the official provider enabled next to a
+# self-hosted one puts three DeepSeek entries in the model picker that nobody
+# can use — there is no DeepSeek credential in that deployment.
 - id: llm-deepseek
-  disabled: false
+  disabled: !!js Boolean(process.env.DSHSERVER_MODEL_BASE_URL)
 
+# `llm-pi-ai` appears exactly once, and that is load-bearing. It carries both
+# "enable the plugin" and the provider declaration; splitting those across two
+# entries with the same id makes the patch merge overwrite one with the other,
+# and the Runtime dies with `provider has an empty baseURL` — after the
+# readiness probe, so the outside only ever sees a 503.
+#
+# The declaration lives here rather than in `model-seed.patch.yml` because the
+# seed is appended only while the profile holds no administrator entries: once
+# anyone saves settings the seed stops applying, and a provider route that
+# disappeared would leave the default model pointing at nothing.
 - id: llm-pi-ai
-  disabled: false
+  # 表达式整体加引号，且不用前置 `!`：紧跟 `!!js ` 的 `!` 会被 YAML 当成第二个
+  # 标签（duplication of a tag property），而三元里的 `: ` 会被当成映射分隔符
+  # （bad indentation of a mapping entry）。两种都让整份 overlay 解析失败。
+  disabled: !!js "process.env.DSHSERVER_MODEL_BASE_URL ? false : true"
+  config:
+    providers:
+      # The key is static — YAML keys cannot be expressions — so a deployment
+      # on this route must have `DSHSERVER_MODEL_PROVIDER` equal to it. The
+      # seed below defaults to the same name; a host that overrides it with
+      # something else routes the default model to a provider that is not here.
+      aiworkskills:
+        displayName: !!js process.env.DSHSERVER_MODEL_DISPLAY_NAME || process.env.DSHSERVER_MODEL_PROVIDER || 'aiworkskills'
+        api: openai-completions
+        baseURL: !!js process.env.DSHSERVER_MODEL_BASE_URL
+        apiKeyEnv: !!js process.env.DSHSERVER_MODEL_API_KEY_ENV || 'AIWORKSKILLS_API_KEY'
+        models:
+          - id: !!js process.env.DSHSERVER_MODEL_ID
+            name: !!js process.env.DSHSERVER_MODEL_NAME || process.env.DSHSERVER_MODEL_ID
+            # Which input shapes the endpoint accepts. Absent, pi-ai treats it
+            # as `['text']` — and that is not a guess but the *absence* of a
+            # declaration: there is no way to ask a gateway whether it takes
+            # images, and the two ways of being wrong cost differently.
+            # Understate it and an image is refused before it is attached (the
+            # user sees "this model does not support images"); overstate it and
+            # the image is accepted, the message persisted, and only then
+            # refused upstream — leaving the session stuck on a request that
+            # can never succeed.
+            #
+            # So this is a statement about the endpoint, written by whoever
+            # knows what it serves. Change it when the model changes.
+            #
+            # Static array, not a `!!js` expression: the expression node at this
+            # position is not evaluated, and the validator reports
+            # `expected array but got [object Object]` — again after the
+            # readiness probe, so again only a 503 is visible.
+            input: [text, image]
 
 # All runtimes in one OAuth tenant consume the same administrator-owned model
 # configuration. DSH providers coordinate writes across processes and hot-reload
