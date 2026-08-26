@@ -179,8 +179,9 @@
 - id: ui-cordis
   disabled: true
 
+# 技能列表放出来。装了 skill 而不让用户看见有哪些，等于要他们靠猜去触发。
 - id: ui-skill
-  disabled: true
+  disabled: false
 
 - id: ui-subagent
   disabled: true

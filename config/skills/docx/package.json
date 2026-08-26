@@ -1,0 +1,10 @@
+{
+  "name": "@dshserver/skill-docx",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Runtime dependency carrier for the docx skill's generator script",
+  "type": "module",
+  "dependencies": {
+    "docx": "^9.5.1"
+  }
+}

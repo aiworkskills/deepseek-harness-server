@@ -1,0 +1,10 @@
+{
+  "name": "@dshserver/skill-pptx",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Runtime dependency carrier for the pptx skill's OOXML scripts",
+  "type": "module",
+  "dependencies": {
+    "jszip": "^3.10.1"
+  }
+}

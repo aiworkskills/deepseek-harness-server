@@ -1,4 +1,8 @@
 packages:
+  # 技能脚本不是要发布的包，但它们 import npm 依赖，而技能目录是被原样拷进镜像的。
+  # 列进 workspace 后 pnpm 在技能目录里建出相对符号链接、指向根 `.pnpm`——镜像已经
+  # 同时拷了 config/ 和 node_modules/，两边都在，脚本就解析得到。
+  - config/skills/*
   - packages/*
   - examples/*
 

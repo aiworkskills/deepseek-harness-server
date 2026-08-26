@@ -1,0 +1,53 @@
+{
+  "templatePath": "$pptJobDir/ppt-template-1.pptx",
+  "templateId": 1,
+  "slides": [
+    {
+      "role": "cover",
+      "sourceSlideIndex": 1,
+      "textPatches": [
+        { "shapeIndex": 0, "text": "XX项目方案汇报" },
+        { "shapeIndex": 1, "text": "某某设计院" }
+      ],
+      "images": [
+        { "index": 0, "path": "$pptJobDir/slide-01-cover.jpg" }
+      ]
+    },
+    {
+      "role": "toc",
+      "sourceSlideIndex": 2,
+      "textPatches": [
+        { "shapeIndex": 20, "text": "目录" },
+        { "shapeIndex": 18, "text": "项目背景" },
+        { "shapeIndex": 3, "text": "实施方案" }
+      ]
+    },
+    {
+      "role": "section",
+      "sourceSlideIndex": 3,
+      "textPatches": [
+        { "shapeIndex": 5, "text": "项目背景" }
+      ]
+    },
+    {
+      "role": "content",
+      "sourceSlideIndex": 4,
+      "textPatches": [
+        { "shapeIndex": 0, "text": "用地现状" },
+        { "shapeIndex": 8, "text": "区位优越，交通便利" },
+        { "shapeIndex": 9, "text": "周边配套完善" }
+      ],
+      "images": [
+        { "index": 0, "path": "$pptJobDir/slide-04.png" }
+      ]
+    },
+    {
+      "role": "closing",
+      "sourceSlideIndex": 20,
+      "textPatches": [
+        { "shapeIndex": 0, "text": "谢谢" },
+        { "shapeIndex": 1, "text": "敬请批评指正" }
+      ]
+    }
+  ]
+}

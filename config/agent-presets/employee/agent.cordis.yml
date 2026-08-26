@@ -40,6 +40,15 @@
 #
 # 写入范围由 sandbox-policy 约束（见 dsh-profile）。工具在、档位是 read-only 时，
 # 每次写都会被拒——两者要一起改。
+# Shell。此前有意不给：那时 Runtime 是网关的子进程，与 OAuth 签发私钥、业务 API 同在
+# 一个容器里。换成容器后端之后这个理由不再成立——每 Runtime 一个容器、cap_drop ALL、
+# 私有网络、不发布端口、只挂自己的 home，能碰到的最坏情况是它自己那个一次性容器。
+#
+# 需要它是因为 .docx / .pptx 是 ZIP 容器，纯文本写入生成不出来，必须执行代码打包。
+# 沙箱范围仍由 sandbox-policy 约束在会话工作区内。
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
+
 - id: tool-fs
   name: '@deepseek-ai/dsh-tool-fs'
 
