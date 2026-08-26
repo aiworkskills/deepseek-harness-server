@@ -17,3 +17,30 @@
     exposedTools: !!js JSON.parse(process.env.DSHSERVER_EXPOSED_TOOLS)
     readScope: customers:read:team
     requestTimeoutMs: 15000
+
+# Preset 是 agent 平面的**完整组合**：没列进来的插件，对模型就不存在。只放人设和
+# 业务插件时，模型手里就只有那几个业务工具——它会去猜 "Bash"、"function" 这类
+# 别家的工具名，全部 unknown tool，然后告诉用户"我没有写文件的权限"。那不是权限
+# 问题，是这些工具压根不在它的组合里。
+#
+# 列进来的只有读写与检索，**没有 shell**。上游业务 Preset 正是靠"不列"把 shell
+# 挡在外面，这里保持同一姿态：产出一份文件不需要执行命令，而本部署的 Runtime 是
+# 网关的子进程，和 OAuth 签发私钥、业务 API 同在一个容器里。
+#
+# 写入范围由 sandbox-policy 约束（见 dsh-profile）。工具在、档位是 read-only 时，
+# 每次写都会被拒——两者要一起改。
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'
+
+- id: tool-fs-search
+  name: '@deepseek-ai/dsh-tool-fs-search'
+  config:
+    # 必填项。漏掉会让整个 Preset 挂载失败（agent-preset-invalid），表现为会话
+    # 根本建不起来——Runtime 本身照常 ready，因为 Preset 插件是建会话时才加载的。
+    # 取值与 base bundle 一致，避免两处悄悄分叉。
+    sampleOverCapGlobResults: false
+
+- id: tool-str-replace-editor
+  name: '@deepseek-ai/dsh-tool-str-replace-editor'
+  config:
+    maxOutputChars: 16000

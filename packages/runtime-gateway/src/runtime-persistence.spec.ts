@@ -87,7 +87,11 @@ describe('administrator configuration survives re-provisioning', () => {
     await provisionRuntimeHome(layout, 'subject-key', principal.presetRole)
 
     const patch = await readFile(patchPath, 'utf8')
-    expect(patch).toContain('mode: read-only')
+    // The entry itself, not the mode it resolves to: the sandbox tier is a
+    // deployment parameter now (`DSH_PERMISSION_MODE`), so a literal
+    // `mode: read-only` no longer appears in the shipped overlay.
+    expect(patch).toContain('id: sandbox-policy')
+    expect(patch).toContain('workspaceRoot:')
     expect(patch).not.toContain('disabled: true\n\n- id: sandbox-policy')
   })
 })
@@ -120,7 +124,7 @@ describe('deployment model defaults are a first-run seed', () => {
     // The provider routes stay declared and the policy entries keep applying.
     expect(patch).toContain('id: llm-deepseek')
     expect(patch).toContain('id: llm-pi-ai')
-    expect(patch).toContain('mode: read-only')
+    expect(patch).toContain('id: sandbox-policy')
   })
 
   it('keeps seeding while the profile root is the empty list DSH creates', async () => {

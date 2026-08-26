@@ -90,9 +90,18 @@
   config:
     path: !!js process.env.DSHSERVER_CREDENTIALS_PATH
 
+# 文件沙箱档位。写死 read-only 时 `RuntimeManagerOptions.permissionMode` 是个
+# 摆设——它注入了 DSH_PERMISSION_MODE，而这里不读它。
+#
+# `read-only` 仍是默认，也是失败时该落到的那一档。要产出文件的部署（写报告、
+# 排版、导出）设 workspace-write：写入被限制在本 Runtime 自己的工作区里，网关的
+# 文件和签发私钥仍在边界外。
+#
+# 连接器不接受 danger-full-access —— `RuntimePermissionMode` 只有两个取值。要那一档
+# 的部署得先把隔离换成容器后端，并接受「Runtime 主机是可牺牲的」这个前提。
 - id: sandbox-policy
   config:
-    mode: read-only
+    mode: !!js process.env.DSH_PERMISSION_MODE || 'read-only'
     workspaceRoot: !!js process.env.DSHSERVER_WORKSPACE_ROOT
 
 - id: approval
