@@ -55,3 +55,21 @@
   name: '@deepseek-ai/dsh-tool-str-replace-editor'
   config:
     maxOutputChars: 16000
+
+# Skill：两个插件缺一不可，而缺了哪个的症状不一样。只放 skill-filesystem，skill 被
+# 扫到了但模型没有工具去调；只放 tool-skill，工具在但一个 skill 都发现不了。官方
+# standard preset 也是两个一起列。
+#
+# customSkillDirs 指部署方维护的只读技能目录，所有用户共享。`$DSH_HOME/skills` 那条
+# 路径是每用户的，本部署不用——技能属于部署，不属于某个用户。
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
+  config:
+    # 数组写成静态 YAML 序列，表达式只放在**元素**上。整个数组作为一个 !!js
+    # 表达式不会被求值——校验器拿到的是节点本身，报 `expected array but got
+    # [object Object]`，而这发生在就绪探测之后，外面只看到 Preset 挂载失败。
+    customSkillDirs:
+      - !!js process.env.DSHSERVER_SKILL_ROOT
+
+- id: tool-skill
+  name: '@deepseek-ai/dsh-tool-skill'
