@@ -9,9 +9,11 @@ import { join } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { confineToWorkspace, createDeliverableHandler } from '../src/index.js'
+import { confineToWorkspace, createDeliverableHandler, createListingHandler } from '../src/index.js'
 import {
-  DELIVERABLE_FILE_ROUTE, contentTypeOf, deliverableFileUrl, deliverableKind, parseDeliverableRequest,
+  DELIVERABLE_FILE_ROUTE, DELIVERABLE_LIST_ROUTE, contentTypeOf, deliverableFileUrl,
+  deliverableKind, deliverableListUrl, parseDeliverableListRequest, parseDeliverableRequest,
+  type DeliverableEntry,
 } from '../src/contract.js'
 
 let root: string
@@ -144,7 +146,102 @@ describe('deliverable route', () => {
   })
 })
 
+async function list(url: string, method = 'GET'): Promise<Captured> {
+  const handler = createListingHandler(sessionId => (sessionId === 's1' ? workspace : undefined))
+  const { res, captured } = mockResponse()
+  await handler({ method, url } as IncomingMessage, res)
+  return captured
+}
+
+function entries(captured: Captured): DeliverableEntry[] {
+  return (JSON.parse(captured.body) as { entries: DeliverableEntry[] }).entries
+}
+
+/**
+ * The listing route exists because DSH's produced-file accumulator recognises a
+ * mutation by render intent, so a file a script wrote is never offered — which
+ * splits deliverables by how they happened to be made rather than by what they
+ * are. It reads the same workspace as the file route and therefore needs the
+ * same containment, tested the same way.
+ */
+describe('workspace listing route', () => {
+  it('lists the workspace root when no directory is named', async () => {
+    const result = await list(deliverableListUrl('s1', ''))
+    expect(result.status).toBe(200)
+    expect(entries(result).map(entry => entry.name)).toContain('drafts')
+  })
+
+  it('lists a subdirectory and marks what is a directory', async () => {
+    const result = await list(deliverableListUrl('s1', 'drafts'))
+    const article = entries(result).find(entry => entry.name === 'article.html')
+    expect(article?.path).toBe('drafts/article.html')
+    expect(article?.directory).toBe(false)
+    expect(article?.size).toBeGreaterThan(0)
+  })
+
+  it('offers a file no produced-file chip would ever carry', async () => {
+    // The case this route was added for: a binary a script produced. It cannot
+    // reach the conversation's chips — a terminal card contributes nothing to
+    // the accumulator — so being listed here is its only way to be clicked.
+    await writeFile(join(workspace, 'report.docx'), 'PKbinary')
+    const found = entries(await list(deliverableListUrl('s1', ''))).find(entry => entry.name === 'report.docx')
+    expect(found?.directory).toBe(false)
+    // And once clicked it must arrive as a document rather than a download of
+    // unknown type, which is what decides whether Word opens it.
+    expect(contentTypeOf('report.docx'))
+      .toBe('application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+  })
+
+  it('never lists a directory outside the workspace, however the climb is spelled', async () => {
+    for (const url of [
+      `${DELIVERABLE_LIST_ROUTE}/s1/../outside`,
+      `${DELIVERABLE_LIST_ROUTE}/s1/%2e%2e/outside`,
+      `${DELIVERABLE_LIST_ROUTE}/s1/drafts/%2e%2e/%2e%2e/outside`,
+    ]) {
+      const result = await list(url)
+      expect(result.status).toBe(404)
+      expect(result.body).not.toContain('secret.txt')
+    }
+  })
+
+  it('refuses a symlinked directory that points out of the workspace', async () => {
+    await symlink(outside, join(workspace, 'escape'))
+    const result = await list(deliverableListUrl('s1', 'escape'))
+    expect(result.status).toBe(404)
+    expect(result.body).not.toContain('secret.txt')
+  })
+
+  it('refuses an unknown session and a write method', async () => {
+    expect((await list(deliverableListUrl('other', ''))).status).toBe(404)
+    expect((await list(deliverableListUrl('s1', ''), 'POST')).status).toBe(405)
+  })
+
+  it('skips dependency trees rather than making someone page through them', async () => {
+    await mkdir(join(workspace, 'node_modules', 'left-pad'), { recursive: true })
+    const names = entries(await list(deliverableListUrl('s1', ''))).map(entry => entry.name)
+    expect(names).not.toContain('node_modules')
+  })
+
+  it('survives an entry that vanishes between readdir and stat', async () => {
+    // A broken symlink stands in for the race: one bad entry must not fail the
+    // whole listing, or a workspace becomes unbrowsable for an unrelated reason.
+    await symlink(join(outside, 'gone.txt'), join(workspace, 'dangling.txt'))
+    const result = await list(deliverableListUrl('s1', ''))
+    expect(result.status).toBe(200)
+    expect(entries(result).map(entry => entry.name)).not.toContain('dangling.txt')
+  })
+})
+
 describe('request shape', () => {
+  it('treats an empty listing tail as the workspace root', () => {
+    // The one shape the file parser must reject and this one must accept.
+    expect(parseDeliverableListRequest(deliverableListUrl('s1', ''))).toEqual({ sessionId: 's1', directory: '' })
+    expect(parseDeliverableListRequest(`${DELIVERABLE_LIST_ROUTE}/s1`)).toEqual({ sessionId: 's1', directory: '' })
+    expect(parseDeliverableListRequest(deliverableListUrl('s1', 'a b/c')))
+      .toEqual({ sessionId: 's1', directory: 'a b/c' })
+    expect(parseDeliverableListRequest('/plugins/other/list/s1')).toBeNull()
+  })
+
   it('round-trips a session and path through the URL path', () => {
     // Path-shaped on purpose: a produced article refers to its images
     // relatively, and only a path-shaped URL resolves those to this route.

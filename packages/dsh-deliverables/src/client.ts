@@ -24,13 +24,22 @@
 import { createElement as h, useSyncExternalStore } from 'react'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+// Declares `conversation.session.header.utilities` in the SlotMap. Type-only, so
+// nothing is imported at runtime — this bundle is linked into a profile with no
+// `node_modules` beside it. Without it the slot key is not merely unknown, it is
+// rejected: the map would only carry the layout package's root-level seats.
+import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 
 import { DETAILS_PRIORITY } from './contract.js'
 import { Preview } from './client/Preview.js'
+import { FileList } from './client/FileList.js'
 import { createSelectionStore } from './client/store.js'
 
-export { createSelectionStore, type Selection, type SelectionStore } from './client/store.js'
+export {
+  createSelectionStore, type Browsing, type Selection, type SelectionStore, type View,
+} from './client/store.js'
 export { Preview } from './client/Preview.js'
+export { FileList, humanSize, parentOf, sortEntries } from './client/FileList.js'
 export { basename } from './client/basename.js'
 export { workspaceRelative } from './client/relative.js'
 
@@ -55,21 +64,48 @@ export function apply(ctx: ClientContext): void {
   }
 
   function DetailsPreview() {
-    const selection = useSyncExternalStore(store.subscribe, store.snapshot, store.snapshot)
-    if (selection === null) return null
-    return h(Preview, { sessionId: selection.sessionId, path: selection.path, onClose: close })
+    const view = useSyncExternalStore(store.subscribe, store.snapshot, store.snapshot)
+    if (view === null) return null
+    if (view.mode === 'browse') {
+      const { sessionId, directory } = view.browsing
+      return h(FileList, {
+        sessionId,
+        directory,
+        onOpenDirectory: next => { store.browse({ sessionId, directory: next }) },
+        onOpenFile: path => { store.select({ sessionId, path, from: directory }) },
+        onClose: close,
+      })
+    }
+    const { sessionId, path, from } = view.selection
+    return h(Preview, {
+      sessionId,
+      path,
+      onClose: close,
+      onBack: from === undefined || from === null
+        ? undefined
+        : () => { store.browse({ sessionId, directory: from }) },
+    })
   }
 
-  const show = (sessionId: string, path: string): void => {
-    store.select({ sessionId, path })
-    // The details panel is a single seat, so the registration is held only
-    // while a preview is open — otherwise this plugin would keep the seat from
-    // whatever else a deployment puts there for the rest of the session.
+  // The details panel is a single seat, so the registration is held only while
+  // something of ours is open — otherwise this plugin would keep the seat from
+  // whatever else a deployment puts there for the rest of the session.
+  const takeSeat = (): void => {
     mounted ??= ctx.slots.inject('details', () => ctx.slots.register({
       name: 'details',
       priority: DETAILS_PRIORITY,
     }, DetailsPreview))
     ctx.layout.openDetails()
+  }
+
+  const show = (sessionId: string, path: string): void => {
+    store.select({ sessionId, path })
+    takeSeat()
+  }
+
+  const browse = (sessionId: string, directory: string): void => {
+    store.browse({ sessionId, directory })
+    takeSeat()
   }
 
   const workspaces = ctx.workspaces as unknown as OpenPathFace
@@ -88,6 +124,43 @@ export function apply(ctx: ClientContext): void {
     }
     show(sessionId, relative)
   }
+
+  /**
+   * The one entry point that does not depend on how a file was made.
+   *
+   * Everything else here reacts to DSH deciding a turn produced something, and
+   * that decision reads render intent: an edit card counts, a terminal card does
+   * not. So a report the model typed out as HTML is clickable and the same
+   * report as `.docx` is not — the binary can only come from running a script.
+   * A button that just lists the workspace has no such blind spot.
+   */
+  function WorkspaceButton() {
+    const sessionId = ctx.sessions.list.getSnapshot().current
+    if (sessionId === undefined) return null
+    return h('button', {
+      type: 'button',
+      title: '工作区文件',
+      'aria-label': '工作区文件',
+      onClick: () => { browse(sessionId, '') },
+      style: {
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        width: '28px', height: '28px', borderRadius: '6px',
+        background: 'none', border: 'none', padding: 0,
+        color: 'inherit', cursor: 'pointer',
+      },
+    }, h('svg', {
+      width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none',
+      stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round',
+      'aria-hidden': true, focusable: false,
+    }, h('path', { d: 'M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2Z' })))
+  }
+
+  // A `list` seat, so it needs an id of its own. No `priority`: the browser-half
+  // facade assigns one, and hand-picking it is how two contributions collide.
+  ctx.effect(() => ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
+    name: 'conversation.session.header.utilities',
+    id: 'dshserver-workspace-files',
+  }, WorkspaceButton)), 'dshserver-deliverables: workspace button')
 
   ctx.effect(() => () => {
     workspaces.openPath = original
