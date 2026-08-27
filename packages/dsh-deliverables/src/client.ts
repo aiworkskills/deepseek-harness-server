@@ -155,10 +155,22 @@ export function apply(ctx: ClientContext): void {
     }, h('path', { d: 'M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2Z' })))
   }
 
-  // A `list` seat, so it needs an id of its own. No `priority`: the browser-half
-  // facade assigns one, and hand-picking it is how two contributions collide.
-  ctx.effect(() => ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
-    name: 'conversation.session.header.utilities',
+  // The composer tool row, not the session header.
+  //
+  // Both are `list` seats and the header is where this belongs semantically —
+  // it is session-level, and DSH's own "download session log" action sits there.
+  // But a slot exists only while the entry declaring it is mounted, and those
+  // two entries are not equally certain: `conversation.session.header.utilities`
+  // needs the session *header* mounted, while this one needs only
+  // `conversation` — the centre column, which is present whenever the user can
+  // type at all. In the embedded dock the header is not guaranteed, and a button
+  // that silently never renders is exactly the failure this whole surface exists
+  // to fix. Certain beats tidy.
+  //
+  // A `list` seat needs an id of its own. No `priority`: the browser-half facade
+  // assigns one, and hand-picking it is how two contributions collide.
+  ctx.effect(() => ctx.slots.inject('conversation.input.left', () => ctx.slots.register({
+    name: 'conversation.input.left',
     id: 'dshserver-workspace-files',
   }, WorkspaceButton)), 'dshserver-deliverables: workspace button')
 
