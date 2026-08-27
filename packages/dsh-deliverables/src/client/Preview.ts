@@ -29,7 +29,6 @@ function icon(path: string, extra?: ReactNode): ReactNode {
 const OPEN_ICON = 'M15 3h6v6M10 14 21 3M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5'
 const DOWNLOAD_ICON = 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3'
 const CLOSE_ICON = 'M18 6 6 18M6 6l12 12'
-const BACK_ICON = 'M19 12H5M12 19l-7-7 7-7'
 
 /** Icon-only controls need a name; the tooltip and the accessible name are the same word. */
 const ACTION_STYLE = {
@@ -43,13 +42,6 @@ export interface PreviewProps {
   readonly sessionId: string
   readonly path: string
   readonly onClose: () => void
-  /**
-   * Return to the listing this file was opened from.
-   *
-   * Absent when the file was opened from the conversation: a back button that
-   * lands somewhere the user was never at is worse than none.
-   */
-  readonly onBack?: (() => void) | undefined
 }
 
 /** Text kinds are fetched rather than framed, so they can be shown as text. */
@@ -106,7 +98,7 @@ function body(kind: ReturnType<typeof deliverableKind>, url: string, text: strin
   }, text)
 }
 
-export function Preview({ sessionId, path, onClose, onBack }: PreviewProps) {
+export function Preview({ sessionId, path, onClose }: PreviewProps) {
   const kind = deliverableKind(path)
   const url = deliverableFileUrl(sessionId, path)
   const { text, error } = useFileText(url, kind !== 'html' && kind !== 'image' && kind !== 'binary')
@@ -118,16 +110,9 @@ export function Preview({ sessionId, path, onClose, onBack }: PreviewProps) {
         gap: '8px', padding: '8px 12px', borderBottom: '1px solid rgba(127,127,127,0.2)',
       },
     },
-    h('span', { style: { display: 'flex', alignItems: 'center', gap: '4px', minWidth: 0 } },
-      onBack === undefined
-        ? null
-        : h('button', {
-          type: 'button', onClick: onBack,
-          title: '返回文件列表', 'aria-label': '返回文件列表', style: ACTION_STYLE,
-        }, icon(BACK_ICON)),
-      // Full path in the tooltip: two turns can produce files sharing a basename,
-      // and the header stays short.
-      h('span', { title: path, style: { fontSize: '13px', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, basename(path))),
+    // Full path in the tooltip: two turns can produce files sharing a basename,
+    // and the header stays short.
+    h('span', { title: path, style: { fontSize: '13px', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, basename(path)),
     h('span', { style: { display: 'flex', gap: '2px', flexShrink: 0 } },
       // Only for the kinds a browser tab can actually render as a document.
       // The response carries `Content-Security-Policy: sandbox allow-scripts`,

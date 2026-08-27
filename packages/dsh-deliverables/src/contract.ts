@@ -14,35 +14,6 @@
 export const DELIVERABLE_FILE_ROUTE = '/plugins/dshserver/deliverables/file'
 
 /**
- * Where the session's own workspace is listed.
- *
- * This route exists because DSH's produced-file surfaces cannot see everything a
- * session makes. Its accumulator recognises a mutation by *render intent* — a
- * diff card, or a generic card whose kind is `edit` — so a file the model typed
- * out with an edit tool gets a chip, and a file a script wrote does not: a
- * terminal ran, and by that rule a terminal produces nothing.
- *
- * That rule is right for what it does, but it splits deliverables by how they
- * happened to be made. A report written as HTML is clickable; the same report as
- * `.docx` or `.pptx` is not, because binary formats can only be produced by
- * running something. Browsing the workspace is the surface that does not care:
- * it lists what is there.
- */
-export const DELIVERABLE_LIST_ROUTE = '/plugins/dshserver/deliverables/list'
-
-/** One entry in a workspace listing. */
-export interface DeliverableEntry {
-  readonly name: string
-  /** Workspace-relative, `/`-separated; what the file route takes back. */
-  readonly path: string
-  readonly directory: boolean
-  /** Bytes; `0` for directories. */
-  readonly size: number
-  /** Epoch milliseconds, so the browser half can sort by recency. */
-  readonly modified: number
-}
-
-/**
  * This plugin's shadowing rank in the `details` slot (ascending, lowest renders).
  *
  * The preview is a *transient overlay*: the registration is held only while a
@@ -129,41 +100,6 @@ export function contentTypeOf(path: string): string {
 export function deliverableFileUrl(sessionId: string, path: string): string {
   const relative = path.replace(/^[/\\]+/, '').split(/[/\\]+/).map(encodeURIComponent).join('/')
   return `${DELIVERABLE_FILE_ROUTE}/${encodeURIComponent(sessionId)}/${relative}`
-}
-
-/**
- * URL listing one directory inside one session's workspace.
- *
- * `directory` is `''` for the workspace root, which is why this cannot reuse the
- * file URL builder: an empty tail is the common case here and an error there.
- */
-export function deliverableListUrl(sessionId: string, directory: string): string {
-  const relative = directory.replace(/^[/\\]+/, '').split(/[/\\]+/)
-    .filter(segment => segment !== '').map(encodeURIComponent).join('/')
-  const base = `${DELIVERABLE_LIST_ROUTE}/${encodeURIComponent(sessionId)}`
-  return relative === '' ? base : `${base}/${relative}`
-}
-
-/**
- * Parse a listing request back into its session and directory.
- *
- * Unlike {@link parseDeliverableRequest}, an empty tail is valid and means the
- * workspace root.
- */
-export function parseDeliverableListRequest(url: string): { sessionId: string; directory: string } | null {
-  const pathname = new URL(url, 'http://localhost').pathname
-  if (pathname !== DELIVERABLE_LIST_ROUTE && !pathname.startsWith(`${DELIVERABLE_LIST_ROUTE}/`)) return null
-  const tail = pathname.slice(DELIVERABLE_LIST_ROUTE.length).replace(/^\//, '')
-  const segments = tail.split('/').filter(segment => segment !== '')
-  const [rawSession, ...rawPath] = segments
-  if (rawSession === undefined) return null
-  try {
-    const sessionId = decodeURIComponent(rawSession)
-    const directory = rawPath.map(decodeURIComponent).join('/')
-    return sessionId === '' ? null : { sessionId, directory }
-  } catch {
-    return null
-  }
 }
 
 /** Parse a request path back into its session and workspace-relative path. */

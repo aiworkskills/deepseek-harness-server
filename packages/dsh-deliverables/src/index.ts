@@ -13,9 +13,8 @@
  * hoped for.
  */
 import { createReadStream } from 'node:fs'
-import { readdir, realpath, stat } from 'node:fs/promises'
+import { realpath, stat } from 'node:fs/promises'
 import { resolve, sep } from 'node:path'
-import type { Dirent, Stats } from 'node:fs'
 import type { Context } from '@deepseek-ai/cordis'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { SessionId } from '@deepseek-ai/dsh-session'
@@ -27,16 +26,12 @@ import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 
 import {
-  DELIVERABLE_FILE_ROUTE, DELIVERABLE_LIST_ROUTE, contentTypeOf,
-  parseDeliverableListRequest, parseDeliverableRequest,
+  DELIVERABLE_FILE_ROUTE, contentTypeOf, parseDeliverableRequest,
 } from './contract.js'
-import type { DeliverableEntry } from './contract.js'
 
 export {
-  DELIVERABLE_FILE_ROUTE, DELIVERABLE_LIST_ROUTE, DETAILS_PRIORITY, contentTypeOf,
-  deliverableFileUrl, deliverableKind, deliverableListUrl, extensionOf,
-  parseDeliverableListRequest, parseDeliverableRequest,
-  type DeliverableEntry, type DeliverableKind,
+  DELIVERABLE_FILE_ROUTE, DETAILS_PRIORITY, contentTypeOf, deliverableFileUrl, deliverableKind,
+  extensionOf, parseDeliverableRequest, type DeliverableKind,
 } from './contract.js'
 
 export const name = 'dshserver-deliverables'
@@ -44,25 +39,6 @@ export const inject = ['agents', 'webServer']
 
 /** Largest file served inline. Beyond this the browser half offers a download. */
 const MAX_INLINE_BYTES = 8 * 1024 * 1024
-
-/**
- * Most entries returned for one directory.
- *
- * A workspace can hold a dependency tree, and a listing of a hundred thousand
- * names is neither useful to read nor cheap to send. The browser half says when
- * a directory was truncated rather than implying it saw everything.
- */
-const MAX_ENTRIES = 500
-
-/**
- * Directories never listed.
- *
- * Not a security boundary — everything here is inside the session's own
- * workspace and reachable by naming it directly. It is about what the panel is
- * for: someone looking for the report they just asked for should not have to
- * page through a package store to find it.
- */
-const SKIPPED = new Set(['node_modules', '.git'])
 
 interface SessionLookup {
   (sessionId: string): string | undefined
@@ -165,82 +141,6 @@ export function createDeliverableHandler(lookup: SessionLookup) {
   }
 }
 
-/**
- * @internal Exported for tests; `apply` wires this to the web server.
- *
- * Lists one directory inside one session's workspace. Confinement is the same
- * `confineToWorkspace` the file route uses, for the same reason: the directory
- * arrives from the browser, and a `..` or a symlink pointing out of the
- * workspace must not be followed.
- */
-export function createListingHandler(lookup: SessionLookup) {
-  return async function handler(request: IncomingMessage, response: ServerResponse): Promise<void> {
-    if (request.method !== 'GET' && request.method !== 'HEAD') {
-      response.setHeader('Allow', 'GET, HEAD')
-      fail(response, 405, 'method-not-allowed')
-      return
-    }
-    const parsed = parseDeliverableListRequest(request.url ?? DELIVERABLE_LIST_ROUTE)
-    if (parsed === null) {
-      fail(response, 400, 'path-required')
-      return
-    }
-    const workspace = lookup(parsed.sessionId)
-    if (workspace === undefined) {
-      fail(response, 404, 'session-not-active')
-      return
-    }
-    const directory = await confineToWorkspace(workspace, parsed.directory)
-    if (directory === null) {
-      fail(response, 404, 'not-found')
-      return
-    }
-    // Annotated rather than inferred: `readdir`'s overloads resolve to the
-    // Buffer-named variant here, and every `entry.name` downstream would be a
-    // Buffer at the type level while being a string at runtime.
-    let listing: Dirent[]
-    try {
-      listing = await readdir(directory, { withFileTypes: true })
-    } catch {
-      // A file rather than a directory, or gone between the two calls.
-      fail(response, 404, 'not-found')
-      return
-    }
-    const kept = listing.filter(entry => !(entry.isDirectory() && SKIPPED.has(entry.name)))
-    const truncated = kept.length > MAX_ENTRIES
-    const entries: DeliverableEntry[] = []
-    for (const entry of kept.slice(0, MAX_ENTRIES)) {
-      const child = `${directory}${sep}${entry.name}`
-      let info: Stats
-      try {
-        info = await stat(child)
-      } catch {
-        // A broken symlink, or removed while we were listing. Skipping it is
-        // better than failing the whole listing for one bad entry.
-        continue
-      }
-      // `stat` follows symlinks, so a link to a directory lists as a directory —
-      // and stepping into it is confined by `confineToWorkspace` on the next
-      // request, which realpaths both sides.
-      const relative = parsed.directory === '' ? entry.name : `${parsed.directory}/${entry.name}`
-      entries.push({
-        name: entry.name,
-        path: relative,
-        directory: info.isDirectory(),
-        size: info.isDirectory() ? 0 : info.size,
-        modified: info.mtimeMs,
-      })
-    }
-    const body = JSON.stringify({ directory: parsed.directory, entries, truncated })
-    response.writeHead(200, {
-      'content-type': 'application/json; charset=utf-8',
-      'content-length': Buffer.byteLength(body),
-      'cache-control': 'no-store',
-    })
-    response.end(request.method === 'HEAD' ? undefined : body)
-  }
-}
-
 export function apply(ctx: Context): void {
   const lookup: SessionLookup = sessionId => ctx.agents.get(sessionId as SessionId)?.session.header.cwd
   ctx.effect(() => ctx.webServer.register({
@@ -248,9 +148,4 @@ export function apply(ctx: Context): void {
     path: DELIVERABLE_FILE_ROUTE,
     handler: createDeliverableHandler(lookup),
   }), 'dshserver-deliverables: produced-file route')
-  ctx.effect(() => ctx.webServer.register({
-    kind: 'prefix',
-    path: DELIVERABLE_LIST_ROUTE,
-    handler: createListingHandler(lookup),
-  }), 'dshserver-deliverables: workspace listing route')
 }
