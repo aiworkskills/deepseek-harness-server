@@ -27,15 +27,62 @@ const principal: RuntimePrincipal = {
   models: [{ provider: 'deepseek-official', model: 'deepseek-v4-flash' }], policyRevision: 1, canConfigureDsh: false,
 }
 
-/** Answers like a Runtime: ok to the probe, a workspace to the bootstrap RPC. */
+/**
+ * Answers like a DSH 0.1.5 Runtime, including the parts that broke the Gateway.
+ *
+ * Three behaviours are load-bearing here, and each one stands for a regression
+ * that shipped green because the old fake answered `ok` to everything:
+ *
+ * - `/` needs the browser-auth cookie. A readiness probe aimed there polls until
+ *   its deadline against a Runtime that came up fine.
+ * - the RPC path is `<ns>/<method>`, not `<ns>.<method>`. The dotted spelling is
+ *   a path DSH does not serve, so a rule or a call written that way silently
+ *   addresses nothing.
+ * - `/api` needs the cookie too, which the Gateway can only get by trading the
+ *   startup token at `GET /?token=`.
+ */
 function fakeRuntimeServer(): Promise<{ server: Server; origin: string }> {
+  const COOKIE = 'dsh-auth-test=granted'
   const server = createServer((request, response) => {
-    if (request.method === 'POST' && request.url === '/api/workspace.create') {
-      response.setHeader('content-type', 'application/json')
-      response.end(JSON.stringify({ result: { ok: true, value: { workspace: { workspaceId: 'ws-1' } } } }))
+    const url = new URL(request.url ?? '/', 'http://runtime.invalid')
+    const authenticated = (request.headers.cookie ?? '').includes(COOKIE)
+    // Served without credentials, by spec — the one thing a Gateway can knock on.
+    if (url.pathname === '/manifest.webmanifest') {
+      response.end('{}')
       return
     }
-    response.end('ok')
+    // The handshake: a valid token buys the cookie every other path demands.
+    if (url.pathname === '/' && url.searchParams.get('token') === FAKE_STARTUP_TOKEN) {
+      response.writeHead(303, { 'set-cookie': `${COOKIE}; Path=/; HttpOnly`, location: '/' })
+      response.end()
+      return
+    }
+    if (!authenticated) {
+      response.writeHead(401)
+      response.end('dsh web authentication required')
+      return
+    }
+    if (request.method === 'POST' && url.pathname === '/api/workspace/create') {
+      // Validate the envelope, because getting it wrong is the other way this
+      // call fails silently: DSH keys `args` by the method's own parameter
+      // names, so `{ args: { path } }` is refused even though `path` is exactly
+      // what `WorkspaceCreateRequest` holds.
+      let body = ''
+      request.on('data', (chunk: Buffer) => { body += chunk.toString('utf8') })
+      request.on('end', () => {
+        const parsed = JSON.parse(body) as { payload?: { args?: { request?: { path?: unknown } } } }
+        if (typeof parsed.payload?.args?.request?.path !== 'string') {
+          response.writeHead(400)
+          response.end('args fields do not match the descriptor')
+          return
+        }
+        response.setHeader('content-type', 'application/json')
+        response.end(JSON.stringify({ result: { ok: true, value: { workspace: { workspaceId: 'ws-1' } } } }))
+      })
+      return
+    }
+    response.writeHead(404)
+    response.end('not found')
   })
   return new Promise(resolveServer => {
     server.listen(0, '127.0.0.1', () => {
@@ -45,7 +92,12 @@ function fakeRuntimeServer(): Promise<{ server: Server; origin: string }> {
   })
 }
 
+/** The token the fake Runtime announces, and the only one its handshake accepts. */
+const FAKE_STARTUP_TOKEN = 'fake-startup-token'
+
 interface FakeBackendOptions {
+  /** 让测试决定这个 Runtime 是否宣告启动 token（0.1.5 起的浏览器鉴权）。 */
+  readonly startupToken?: string
   /** Handles report this exit cause from the start — a runtime dead on arrival. */
   readonly deadWith?: number
   readonly logs?: readonly string[]
@@ -70,6 +122,7 @@ class FakeBackend implements RuntimeBackend {
       exitCause: () => cause,
       exited,
       logTail: async lines => (this.options.logs ?? []).slice(-lines),
+      startupToken: async () => this.options.startupToken ?? FAKE_STARTUP_TOKEN,
       async stop() {
         if (cause === null) {
           cause = 'stopped'

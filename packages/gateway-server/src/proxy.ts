@@ -103,6 +103,33 @@ export interface ProxyRequestOptions extends ProxyTarget {
    * re-established by whoever sets this, which is why it is off by default.
    */
   readonly host?: string
+  /**
+   * The Runtime's own browser-auth cookie, appended to whatever the caller sent.
+   *
+   * Since DSH 0.1.5 a Runtime authenticates its browser surface itself, and the
+   * browser has no credential for it — by design: the user was authenticated by
+   * the Gateway, and giving them a second one the Runtime accepts directly
+   * would be a way around that. So the Gateway holds it and adds it here.
+   *
+   * Appended rather than assigned: the caller's own cookies are the session the
+   * deployment runs on, and dropping them would log the user out of the product
+   * to authenticate to its Runtime.
+   */
+  readonly cookie?: string
+}
+
+/**
+ * `cookie` header carrying both the caller's cookies and the Runtime's.
+ * @param existing - the caller's `Cookie` header, if any.
+ * @param runtime - the Runtime's browser-auth cookie, if any.
+ * @returns the merged header value, or undefined when there is nothing to send.
+ */
+function mergeCookies(existing: string | string[] | undefined, runtime: string | undefined): string | undefined {
+  const parts = [
+    ...(Array.isArray(existing) ? existing : existing === undefined ? [] : [existing]),
+    ...(runtime === undefined || runtime === '' ? [] : [runtime]),
+  ].filter(part => part !== '')
+  return parts.length === 0 ? undefined : parts.join('; ')
 }
 
 /**
@@ -138,6 +165,8 @@ export async function proxyHttp(
     headers.host = options.host
     for (const name of AUTHORITY_BOUND) delete headers[name]
   }
+  const cookie = mergeCookies(headers.cookie, options.cookie)
+  if (cookie !== undefined) headers.cookie = cookie
   if (options.body !== undefined) headers['content-length'] = String(options.body.byteLength)
 
   await new Promise<void>((resolve, reject) => {
@@ -178,10 +207,14 @@ export async function proxyUpgrade(
   request: IncomingMessage,
   socket: Duplex,
   head: Buffer,
-  options: ProxyTarget & { readonly path?: string },
+  options: ProxyTarget & { readonly path?: string; readonly cookie?: string },
 ): Promise<void> {
   const upstream = new URL(options.path ?? request.url ?? '/', options.target)
   const headers = forwardableHeaders(request.headers)
+  // The session stream is the product; without the Runtime's cookie DSH refuses
+  // the upgrade and the conversation never opens. Same merge as the HTTP path.
+  const cookie = mergeCookies(headers.cookie, options.cookie)
+  if (cookie !== undefined) headers.cookie = cookie
 
   await new Promise<void>((resolve, reject) => {
     const forwarded = httpRequest({

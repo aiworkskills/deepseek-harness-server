@@ -26,7 +26,7 @@
  */
 import { request as httpRequest } from 'node:http'
 
-import type { RuntimeBackend, RuntimeHandle, RuntimeStart } from './runtime-backend.js'
+import { startupTokenOf, type RuntimeBackend, type RuntimeHandle, type RuntimeStart } from './runtime-backend.js'
 
 export interface ContainerBackendOptions {
   /** Image every Runtime container starts from. */
@@ -238,6 +238,26 @@ export class ContainerRuntimeBackend implements RuntimeBackend {
         } catch (error) {
           return [`(container logs unavailable: ${error instanceof Error ? error.message : String(error)})`]
         }
+      },
+      /**
+       * Read the announcement out of the container's own log stream.
+       *
+       * No streaming subscription: the caller asks once, after readiness, so the
+       * line is already there. A tail deep enough to clear DSH's own startup
+       * chatter is cheaper than holding an attach open for every Runtime.
+       */
+      startupToken: async () => {
+        try {
+          const logs = await dockerCall(options.docker, 'GET', `/containers/${id}/logs?stdout=true&stderr=true&tail=200`)
+          for (const line of demuxDockerLogs(logs.body)) {
+            const token = startupTokenOf(line)
+            if (token !== undefined) return token
+          }
+        } catch {
+          // Same posture as `logTail`: a log fetch that fails must not mask the
+          // caller's own error, and "no token" is already a handled outcome.
+        }
+        return undefined
       },
       stop: async () => {
         // Engine-side stop is SIGTERM, a grace period, then SIGKILL — the same

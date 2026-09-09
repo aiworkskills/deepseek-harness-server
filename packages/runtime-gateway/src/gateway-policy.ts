@@ -15,58 +15,62 @@ const CONFIGURATION_SCOPE = 'assistant:platform:write'
  * cleared it.
  */
 export function isConfigurationRpc(pathname: string): boolean {
-  return pathname === '/api/settings.describe'
-    || pathname === '/api/settings.update'
-    || pathname === '/api/settings.replace'
-    || pathname === '/api/settings.mutate'
-    || pathname.startsWith('/api/credentials.')
-    || pathname === '/api/llm.discoverModels'
+  return pathname === '/api/settings/describe'
+    || pathname === '/api/settings/update'
+    || pathname === '/api/settings/replace'
+    || pathname === '/api/settings/mutate'
+    || pathname.startsWith('/api/credentials/')
+    || pathname === '/api/llm/discoverModels'
 }
 
 /**
- * RPC 前缀必须跟着 DSH 的命名空间走，而命名空间会在升级中改名。
+ * RPC 路径必须跟着 DSH 的**形状和命名空间**走，两者都会在升级中变。
  *
- * 0.1.1 → 0.1.5 就改过一次，而且是无声的：原生「用本机程序打开路径」当时叫
- * `host.openPath`，被下面的 `/api/host.open` 前缀拦住；0.1.5 把它挪到了
- * `session.openWorkspacePath`，四条 `/api/host.*` 于是一起变成死规则，而那个能在
- * Runtime 宿主机上执行 `open`/`xdg-open` 的方法失去了拦截。旧测试没发现，因为它
- * 断言的 `/api/host.listDirectory` 和 `/api/agentPreset.copy` 都是**当前版本里
- * 不存在的路径**——一条永远为真的规则套在一条永远不会到来的请求上。
+ * 0.1.5 两样都变了。形状：端点从 `<ns>.<method>` 改成了 `<ns>/<method>`
+ * （`api/gateway` 的 `endpointOf` 是 `${namespace}/${method}`，`claimsEndpoint`
+ * 按 `/` 切分并要求恰好两段），所以任何点号写法在 0.1.5 上匹配的是一条**不存在的
+ * 路径**——规则永远为真，请求永远不来，被锁的能力实际全部敞开。命名空间：原生
+ * 「用本机程序打开路径」从 `host.openPath` 变成了 `session.openWorkspacePath`。
  *
- * 所以每条都注上它对应的服务，升级时按 `super(ctx, …)` / `{ namespace: … }`
- * 重新核对一遍，并且测试只断言真实存在的方法名。
+ * 这两次都不会有任何报错，而旧测试断言的正是那些不存在的路径，所以全绿。因此每条都
+ * 注上对应的服务，并且 `blocklist-shape.spec.ts` 会强制每条都长成 `/api/<ns>/`。
  */
 const BLOCKED_RPC_PREFIXES = [
   // settings-controller，namespace 'settings'：打开配置文件落到宿主机桌面。
-  '/api/settings.openDocument',
+  '/api/settings/openDocument',
   // session-controller，namespace 'session'：`openWorkspacePath` 无条件调用原生
   // 打开器（`nativeOpen: false` 只影响能力探测 `canOpenWorkspacePath`，不影响它），
   // 所以边界只能在这里。session 命名空间其余方法是正常会话流量，不能整段拦。
-  '/api/session.openWorkspacePath',
-  '/api/session.canOpenWorkspacePath',
+  '/api/session/openWorkspacePath',
+  '/api/session/canOpenWorkspacePath',
   // directory-picker，namespace 'directoryPicker'：0.1.1 时这些是 `host.*`。
-  '/api/directoryPicker.',
+  '/api/directoryPicker/',
   // cordis-inspect / dynamic-cordis-runner：任意插件装配与代码执行。
-  '/api/cordisInspect.',
-  '/api/dynamicCordisRunner.',
+  '/api/cordisInspect/',
+  '/api/dynamicCordisRunner/',
   // host plugin-inventory，namespace 'pluginInventory'。
-  '/api/pluginInventory.',
+  '/api/pluginInventory/',
   // permission-presets，namespace 'permissionPresets'。
-  '/api/permissionPresets.',
+  '/api/permissionPresets/',
   // workspace-controller，namespace 'workspace'：读取放行，结构变更拒绝。
-  '/api/workspace.create',
-  '/api/workspace.rename',
-  '/api/workspace.delete',
-  '/api/workspace.insertBefore',
-  '/api/workspace.insertSessionBefore',
-  // agent-presets，namespace 'agentPresets'（复数——0.1.1 起就是，旧规则写的是
-  // 单数，从未命中过）。
-  '/api/agentPresets.create',
-  '/api/agentPresets.copy',
-  '/api/agentPresets.remove',
-  '/api/agentPresets.read',
-  '/api/agentPresets.select',
+  '/api/workspace/create',
+  '/api/workspace/rename',
+  '/api/workspace/delete',
+  '/api/workspace/insertBefore',
+  '/api/workspace/insertSessionBefore',
+  // agent-presets，namespace 'agentPresets'（复数）。
+  '/api/agentPresets/create',
+  '/api/agentPresets/copy',
+  '/api/agentPresets/remove',
+  '/api/agentPresets/read',
+  '/api/agentPresets/select',
 ] as const
+
+/** 每条黑名单前缀必须长成的样子；形状回退到点号会被测试当场抓住。 */
+export const BLOCKED_RPC_PREFIX_SHAPE = /^\/api\/[a-zA-Z][a-zA-Z0-9]*\/[a-zA-Z][a-zA-Z0-9]*$|^\/api\/[a-zA-Z][a-zA-Z0-9]*\/$/
+
+/** @internal 供形状测试遍历。 */
+export const blockedRpcPrefixes: readonly string[] = BLOCKED_RPC_PREFIXES
 
 export function blockedDshRpc(pathname: string, scopes: readonly string[] = []): boolean {
   if (isConfigurationRpc(pathname) && !scopes.includes(CONFIGURATION_SCOPE)) return true
@@ -82,8 +86,8 @@ export function prepareSessionCreateBody(
     payload?: Record<string, unknown>
     [key: string]: unknown
   }
-  if (parsed.method !== 'session.create' || typeof parsed.payload !== 'object' || parsed.payload === null) {
-    throw new Error('invalid session.create RPC envelope')
+  if (parsed.method !== 'session/create' || typeof parsed.payload !== 'object' || parsed.payload === null) {
+    throw new Error('invalid session/create RPC envelope')
   }
   const requestedPreset = parsed.payload.agentPreset
   if (requestedPreset !== undefined && requestedPreset !== 'business') throw new Error('only the managed business preset is allowed')

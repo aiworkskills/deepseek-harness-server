@@ -36,7 +36,7 @@ import { endSocket, guardSocket, loopbackAuthorityOf, proxyHttp, proxyUpgrade, r
 const USE_SCOPE = 'assistant:use'
 
 /** The RPC that binds a new session to the managed workspace and preset. */
-const SESSION_CREATE_PATH = '/api/session.create'
+const SESSION_CREATE_PATH = '/api/session/create'
 
 /** Why a request was refused, for the deployment's audit log. */
 export type GatewayDenial =
@@ -185,6 +185,9 @@ export class GatewayServer {
         path: runtimeTarget(request.url),
         ...(body === undefined ? {} : { body }),
         ...(loopbackAuthority === undefined ? {} : { host: loopbackAuthority }),
+        // The Runtime authenticates its own browser surface and the caller has
+        // no credential for it; the Gateway holds one and adds it here.
+        ...(resolved.runtime.runtimeCookie === '' ? {} : { cookie: resolved.runtime.runtimeCookie }),
       })
     } catch {
       // A Runtime that died between resolution and connect leaves the client
@@ -230,6 +233,7 @@ export class GatewayServer {
       await proxyUpgrade(request, socket, head, {
         target: resolved.runtime.target,
         path: runtimeTarget(request.url),
+        ...(resolved.runtime.runtimeCookie === '' ? {} : { cookie: resolved.runtime.runtimeCookie }),
       })
     } catch {
       endSocket(socket, 502)

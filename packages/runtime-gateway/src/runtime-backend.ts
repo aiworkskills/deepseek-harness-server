@@ -66,8 +66,31 @@ export interface RuntimeHandle {
    * fails must not mask the error it was called to explain.
    */
   logTail(lines: number): Promise<readonly string[]>
+  /**
+   * The one-time token DSH prints for whoever launches it, once it appears.
+   *
+   * Since DSH 0.1.5 a Runtime authenticates its own browser surface: every
+   * request needs an authority-bound cookie, and the only way to mint one is
+   * `GET /?token=<this>`. The token is announced on stdout — for a human who
+   * would paste the URL — so a managed Gateway has to read it there too.
+   *
+   * Resolves `undefined` when the Runtime exits before announcing one; callers
+   * treat that as "cannot authenticate" rather than waiting forever.
+   */
+  startupToken(): Promise<string | undefined>
   /** Stop the Runtime and release what it held. Idempotent. */
   stop(): Promise<void>
+}
+
+/**
+ * The token in a `dsh web: http://host:port/?token=…` announcement, if that is
+ * what this line is.
+ * @param line - one line of Runtime output.
+ * @returns the token, or undefined when the line announces nothing.
+ */
+export function startupTokenOf(line: string): string | undefined {
+  const match = /[?&]token=([A-Za-z0-9._~-]+)/.exec(line)
+  return match?.[1]
 }
 
 export interface RuntimeBackend {

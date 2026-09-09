@@ -21,6 +21,20 @@ export interface RuntimeRecord {
   managedWorkspaceId: string
   readonly leaseFile: string
   readonly handle: RuntimeHandle
+  /**
+   * The Runtime's own browser-auth cookie, held on the Gateway's behalf.
+   *
+   * Since DSH 0.1.5 a Runtime authenticates its browser surface itself, so
+   * every request the Gateway sends or forwards needs this. It is minted once
+   * at startup and never travels to the browser: in a managed deployment the
+   * user is already authenticated by the Gateway, and handing them a second
+   * credential for the Runtime would be a way around it.
+   *
+   * Empty when the Runtime never announced a token — the Gateway then behaves
+   * exactly as it did before 0.1.5, which is the right posture for a Runtime
+   * that does not ask for one.
+   */
+  runtimeCookie: string
   readonly startedAt: number
   lastUsedAt: number
   /**
@@ -79,15 +93,33 @@ function defaultLog(message: string): void {
  */
 const STARTUP_LOG_LINES = 40
 
+/**
+ * What we ask a starting Runtime, and why it is not `/`.
+ *
+ * The question here is only "is the webserver bound and serving" — whether the
+ * API answers is settled right after, by the workspace bootstrap and its own
+ * retry loop. `/` cannot answer it: the web profile mints a startup token and
+ * refuses every request without one, so an unauthenticated `GET /` is 401 no
+ * matter how ready the Runtime is, and this loop would spend its whole deadline
+ * on a Runtime that came up fine. The Gateway never sees that token — it is
+ * printed on the Runtime's stdout for a human.
+ *
+ * The manifest is the one thing served without credentials, and not by accident:
+ * browsers fetch a web app manifest uncredentialed by spec, so DSH has to leave
+ * it open. That makes it a stable thing to knock on.
+ */
+const READY_PROBE_PATH = '/manifest.webmanifest'
+
 async function waitForReady(record: RuntimeRecord): Promise<void> {
   const deadline = Date.now() + 45_000
+  const probe = new URL(READY_PROBE_PATH, record.target).toString()
   while (Date.now() < deadline) {
     const cause = record.handle.exitCause()
     if (cause !== null) {
       throw new Error(`DSH Runtime exited during startup (${String(cause)}): ${(await record.handle.logTail(STARTUP_LOG_LINES)).join('\n')}`)
     }
     try {
-      const response = await fetch(record.target, { signal: AbortSignal.timeout(500) })
+      const response = await fetch(probe, { signal: AbortSignal.timeout(500) })
       if (response.ok) return
     } catch {
       // Startup polling expects connection failures until the webserver binds.
@@ -97,20 +129,70 @@ async function waitForReady(record: RuntimeRecord): Promise<void> {
   throw new Error(`DSH Runtime did not become ready: ${(await record.handle.logTail(STARTUP_LOG_LINES)).join('\n')}`)
 }
 
-async function ensureManagedWorkspace(record: RuntimeRecord): Promise<string> {
+/**
+ * Trade the Runtime's startup token for its browser-auth cookie.
+ *
+ * The cookie DSH mints is bound to the authority that asked for it, and the
+ * authority the Runtime will see afterwards is the Gateway's public host — the
+ * proxy forwards the caller's `Host`, which is what the Runtime builds its own
+ * links from. So the handshake has to present that same host, not the loopback
+ * address the socket actually goes to. This is also why the Runtime is launched
+ * with `--trusted-host <publicHost>`: without it DSH refuses the authority.
+ *
+ * Failure is not fatal. A Runtime that announces no token is a Runtime that
+ * does not authenticate, and the caller carries on unauthenticated — the shape
+ * every DSH before 0.1.5 had.
+ * @param record - the started Runtime.
+ * @param publicHost - authority the Gateway is reached at.
+ * @returns the `Cookie` header value, or an empty string when there is none.
+ */
+async function acquireRuntimeCookie(record: RuntimeRecord, publicHost: string): Promise<string> {
+  const token = await record.handle.startupToken()
+  if (token === undefined) return ''
+  try {
+    const response = await fetch(`${record.target}/?token=${encodeURIComponent(token)}`, {
+      headers: { host: publicHost },
+      // The handshake answers 303 to the app; following it would fetch the app
+      // shell for nothing and, worse, hide a non-redirect answer.
+      redirect: 'manual',
+      signal: AbortSignal.timeout(5_000),
+    })
+    const setCookie = response.headers.getSetCookie()
+    // Only the name=value pair travels back: attributes like Path and HttpOnly
+    // describe how a browser should store it, and this is not a browser.
+    const pairs = setCookie.map(entry => entry.split(';', 1)[0]).filter(Boolean)
+    return pairs.join('; ')
+  } catch {
+    // Same posture as a missing token: proceed unauthenticated and let the
+    // bootstrap below report the real refusal, which explains more than this
+    // would.
+    return ''
+  }
+}
+
+async function ensureManagedWorkspace(record: RuntimeRecord, publicHost: string): Promise<string> {
   const rpcId = `bootstrap-workspace-${record.key}`
   const deadline = Date.now() + 10_000
   let lastFailure = 'DSH API did not become ready'
   while (Date.now() < deadline) {
     try {
-      const response = await fetch(`${record.target}/api/workspace.create`, {
+      const response = await fetch(`${record.target}/api/workspace/create`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          // Same authority the cookie was minted for; DSH checks the two agree.
+          ...(record.runtimeCookie === '' ? {} : { host: publicHost, cookie: record.runtimeCookie }),
+        },
+        // `args` is keyed by the method's own parameter names, not by the
+        // request's fields: `WorkspaceController.create(request)` takes one
+        // parameter called `request`, so the envelope nests one level deeper
+        // than it looks like it should. DSH checks the names against the
+        // descriptor and names the mismatch, which is how this was found.
         body: JSON.stringify({
           type: 'client-request',
           rpcId,
-          method: 'workspace.create',
-          payload: { path: record.workspace },
+          method: 'workspace/create',
+          payload: { args: { request: { path: record.workspace } } },
         }),
         signal: AbortSignal.timeout(1_000),
       })
@@ -249,6 +331,7 @@ export class RuntimeManager {
       managedWorkspaceId: '',
       leaseFile: layout.leaseFile,
       handle,
+      runtimeCookie: '',
       startedAt: Date.now(),
       lastUsedAt: Date.now(),
       connections: 0,
@@ -264,7 +347,8 @@ export class RuntimeManager {
     await this.refreshLease(record, principal)
     try {
       await waitForReady(record)
-      record.managedWorkspaceId = await ensureManagedWorkspace(record)
+      record.runtimeCookie = await acquireRuntimeCookie(record, this.options.publicHost)
+      record.managedWorkspaceId = await ensureManagedWorkspace(record, this.options.publicHost)
       record.status = 'ready'
       return record
     } catch (error) {

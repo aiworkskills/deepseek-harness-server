@@ -7,6 +7,25 @@
 
 ### Fixed
 
+- **接上 DSH 0.1.5 的 Runtime 浏览器鉴权，并改正 RPC 路径形状。** 这四条只有真起一次
+  Runtime 才会暴露——`pnpm check`、`release:check`、`example` 在修之前全是绿的。
+  - 0.1.5 新增了 `browser-auth`：Runtime 自己鉴权浏览器面，根路径无 token 返回 401。
+    就绪探测改为敲 `/manifest.webmanifest`（浏览器按 W3C 规范不带凭据取 manifest，
+    所以 DSH 只能让它免鉴权，这比根路径更稳），否则网关轮询 45 秒后放弃一个其实
+    起得好好的 Runtime。
+  - 网关现在从 Runtime stdout 读启动 token，用 `GET /?token=` 换回 cookie，并注入到
+    HTTP 与 WebSocket 两条转发路径。cookie 只在网关内部流转：用户已由网关认证，
+    再给一份 Runtime 直接认的凭据等于绕过它。
+  - **RPC 端点从 `<ns>.<method>` 变成了 `<ns>/<method>`。** 点号写法在 0.1.5 上指向
+    一条不存在的路径，所以 `blockedDshRpc` 的每一条规则都匹配不到任何请求——被锁的
+    管理能力（settings 写、cordis、插件安装、工作区变更、Preset、宿主机打开器）实际
+    全部敞开；`SESSION_CREATE_PATH` 同样失效，意味着受管工作区与 business Preset 的
+    强制改写从不触发。新增形状测试遍历每条前缀，形状退回点号即变红。
+  - Remote 调用的 payload 是 `{ args: { <参数名>: … } }`，按方法参数名键控而不是请求
+    字段。
+- 测试里的假 Runtime 过去对任何路径都回 `ok`，上面四条一条也测不出来。现在它照 0.1.5
+  的样子应答：根路径要 cookie、只认 `<ns>/<method>`、校验 args 信封。
+
 - **网关重新挡住宿主机命令执行。** DSH 0.1.5 把「用本机程序打开路径」从 `host.openPath`
   改名成了 `session.openWorkspacePath`，于是 `blockedDshRpc` 里那条 `/api/host.open`
   连同另外三条 `/api/host.*` 一起变成了永远命中不了的死规则，而那个方法会在 Runtime

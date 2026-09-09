@@ -11,7 +11,7 @@
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:net'
 
-import type { RuntimeBackend, RuntimeHandle, RuntimeStart } from './runtime-backend.js'
+import { startupTokenOf, type RuntimeBackend, type RuntimeHandle, type RuntimeStart } from './runtime-backend.js'
 
 /** How many output lines a handle retains for failure reports. */
 const LOG_LINES = 200
@@ -55,9 +55,17 @@ export class ProcessRuntimeBackend implements RuntimeBackend {
     })
 
     const logs: string[] = []
+    // The token arrives on stdout at some point after spawn, and the caller
+    // needs it before it can authenticate. A promise settled by whichever comes
+    // first — the announcement or the exit — lets the caller await it without
+    // risking a wait that never ends.
+    let announceToken: (value: string | undefined) => void = () => {}
+    const announced = new Promise<string | undefined>(resolve => { announceToken = resolve })
     const append = (source: string, chunk: Buffer): void => {
       for (const line of chunk.toString('utf8').split('\n').filter(Boolean)) {
         logs.push(`[${source}] ${line}`)
+        const token = startupTokenOf(line)
+        if (token !== undefined) announceToken(token)
       }
       if (logs.length > LOG_LINES) logs.splice(0, logs.length - LOG_LINES)
     }
@@ -68,6 +76,8 @@ export class ProcessRuntimeBackend implements RuntimeBackend {
     const exited = new Promise<number | string | null>(resolveExit => {
       child.once('exit', (code, signal) => {
         cause = code ?? signal ?? 'exit'
+        // A Runtime that died before announcing has no token and never will.
+        announceToken(undefined)
         resolveExit(cause)
       })
     })
@@ -77,6 +87,7 @@ export class ProcessRuntimeBackend implements RuntimeBackend {
       exitCause: () => cause,
       exited,
       logTail: async lines => logs.slice(-lines),
+      startupToken: async () => announced,
       async stop() {
         if (cause !== null) return
         child.kill('SIGTERM')

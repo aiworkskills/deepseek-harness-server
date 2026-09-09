@@ -115,7 +115,7 @@ describe('gateway request policy', () => {
 
   it('refuses a locked RPC', async () => {
     const { gateway, onDenied } = harness()
-    const response = await call(gateway, '/api/cordisInspect.install')
+    const response = await call(gateway, '/api/cordisInspect/install')
     expect(response.status).toBe(403)
     expect(response.body).toContain('managed_capability_locked')
     expect(onDenied).toHaveBeenCalledWith(expect.objectContaining({ denial: 'managed_capability_locked' }))
@@ -127,7 +127,7 @@ describe('gateway request policy', () => {
     const { gateway } = harness({
       authorize: async () => ({ ...authorized, scopes: ['assistant:use', 'assistant:platform:write'] }),
     })
-    expect((await call(gateway, '/api/settings.update')).status).toBe(403)
+    expect((await call(gateway, '/api/settings/update')).status).toBe(403)
   })
 
   it('admits a configuration RPC when the IAM itself granted the scope', async () => {
@@ -138,7 +138,7 @@ describe('gateway request policy', () => {
     })
     // The check passes, so the request reaches Runtime resolution and then the
     // proxy — where the stub target refuses the connection.
-    expect((await call(gateway, '/api/settings.update')).status).toBe(502)
+    expect((await call(gateway, '/api/settings/update')).status).toBe(502)
     expect(runtimeFor).toHaveBeenCalled()
   })
 
@@ -157,8 +157,8 @@ describe('gateway request policy', () => {
     const { gateway, onDenied } = harness({
       lockedRpcMessage: path => `no ${path} here`,
     })
-    const response = await call(gateway, '/api/session.openWorkspacePath', {
-      type: 'client-request', rpcId: 'rpc-7', method: 'session.openWorkspacePath', payload: { path: '/x' },
+    const response = await call(gateway, '/api/session/openWorkspacePath', {
+      type: 'client-request', rpcId: 'rpc-7', method: 'session/openWorkspacePath', payload: { path: '/x' },
     })
     expect(response.status).toBe(200)
     const body = JSON.parse(response.body) as {
@@ -171,7 +171,7 @@ describe('gateway request policy', () => {
     // a guessed one would replace the explanation with a mismatch error.
     expect(body.rpcId).toBe('rpc-7')
     expect(body.result.ok).toBe(false)
-    expect(body.result.error.message).toBe('no /api/session.openWorkspacePath here')
+    expect(body.result.error.message).toBe('no /api/session/openWorkspacePath here')
     expect(body.result.error.details).toEqual({})
     // Still a refusal: audited, and nothing reached a Runtime.
     expect(onDenied).toHaveBeenCalledWith(expect.objectContaining({ denial: 'managed_capability_locked' }))
@@ -181,7 +181,7 @@ describe('gateway request policy', () => {
     // No client request means no conversation to answer; inventing an envelope
     // would only disguise that.
     const { gateway } = harness()
-    expect((await call(gateway, '/api/cordisInspect.install')).status).toBe(403)
+    expect((await call(gateway, '/api/cordisInspect/install')).status).toBe(403)
   })
 
   it('reports a Runtime that will not start as a service error, not a refusal', async () => {
@@ -280,7 +280,7 @@ describe('loopback-pinned configuration RPCs', () => {
   it('gets a configuration RPC past the pin when the deployment opts in', async () => {
     const target = await pinnedRuntime()
     const { gateway } = administrator(target, true)
-    const answer = await call(gateway, '/api/settings.describe', { type: 'client-request', rpcId: 'r1' }, browser)
+    const answer = await call(gateway, '/api/settings/describe', { type: 'client-request', rpcId: 'r1' }, browser)
     expect(answer.status).toBe(200)
     expect(JSON.parse(answer.body).host).toBe(`127.0.0.1:${new URL(target).port}`)
   })
@@ -290,7 +290,7 @@ describe('loopback-pinned configuration RPCs', () => {
     // not use is worse than not having it.
     const target = await pinnedRuntime()
     const { gateway } = administrator(target, false)
-    const answer = await call(gateway, '/api/settings.describe', { type: 'client-request', rpcId: 'r2' }, browser)
+    const answer = await call(gateway, '/api/settings/describe', { type: 'client-request', rpcId: 'r2' }, browser)
     expect(answer.status).toBe(403)
   })
 
@@ -307,7 +307,7 @@ describe('loopback-pinned configuration RPCs', () => {
   it('still refuses a configuration RPC without the platform scope', async () => {
     const target = await pinnedRuntime()
     const { gateway } = harness({ loopbackConfigurationRpc: true }, async () => ({ target, managedWorkspaceId: 'ws-1' }))
-    const answer = await call(gateway, '/api/settings.describe', { type: 'client-request', rpcId: 'r4' }, browser)
+    const answer = await call(gateway, '/api/settings/describe', { type: 'client-request', rpcId: 'r4' }, browser)
     // The opt-in must never become a way around the deployment's own check.
     expect(answer.body).not.toContain('"host"')
   })

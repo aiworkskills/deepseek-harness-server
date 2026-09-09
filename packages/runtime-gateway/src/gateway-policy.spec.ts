@@ -1,17 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { blockedDshRpc, prepareSessionCreateBody } from './gateway-policy.js'
+import { blockedDshRpc, blockedRpcPrefixes, BLOCKED_RPC_PREFIX_SHAPE, prepareSessionCreateBody } from './gateway-policy.js'
 
 describe('managed DSH Gateway policy', () => {
   it('allows conversation RPCs while denying configuration and host mutations to ordinary users', () => {
-    expect(blockedDshRpc('/api/settings.describe')).toBe(true)
-    expect(blockedDshRpc('/api/workspace.list')).toBe(false)
-    expect(blockedDshRpc('/api/settings.update')).toBe(true)
-    expect(blockedDshRpc('/api/credentials.describe')).toBe(true)
-    expect(blockedDshRpc('/api/directoryPicker.listDirectory')).toBe(true)
-    expect(blockedDshRpc('/api/workspace.create')).toBe(true)
-    expect(blockedDshRpc('/api/agentPresets.copy')).toBe(true)
-    expect(blockedDshRpc('/api/session.models')).toBe(false)
-    expect(blockedDshRpc('/api/session.selectModel')).toBe(false)
+    expect(blockedDshRpc('/api/settings/describe')).toBe(true)
+    expect(blockedDshRpc('/api/workspace/list')).toBe(false)
+    expect(blockedDshRpc('/api/settings/update')).toBe(true)
+    expect(blockedDshRpc('/api/credentials/describe')).toBe(true)
+    expect(blockedDshRpc('/api/directoryPicker/listDirectory')).toBe(true)
+    expect(blockedDshRpc('/api/workspace/create')).toBe(true)
+    expect(blockedDshRpc('/api/agentPresets/copy')).toBe(true)
+    expect(blockedDshRpc('/api/session/models')).toBe(false)
+    expect(blockedDshRpc('/api/session/selectModel')).toBe(false)
   })
 
   /**
@@ -25,8 +25,8 @@ describe('managed DSH Gateway policy', () => {
   it('denies the host desktop opener even to platform administrators', () => {
     const admin = ['assistant:use', 'assistant:platform:write']
     for (const scopes of [[], admin]) {
-      expect(blockedDshRpc('/api/session.openWorkspacePath', scopes)).toBe(true)
-      expect(blockedDshRpc('/api/session.canOpenWorkspacePath', scopes)).toBe(true)
+      expect(blockedDshRpc('/api/session/openWorkspacePath', scopes)).toBe(true)
+      expect(blockedDshRpc('/api/session/canOpenWorkspacePath', scopes)).toBe(true)
     }
   })
 
@@ -35,10 +35,22 @@ describe('managed DSH Gateway policy', () => {
    * 被请求命中的规则——0.1.1→0.1.5 就这样丢过一次拦截，而当时的测试断言的正是
    * 那些已经不存在的路径，所以全绿。这里只列真实存在的方法。
    */
+  /**
+   * DSH 0.1.5 把端点从 `<ns>.<method>` 改成了 `<ns>/<method>`。点号写法在 0.1.5 上
+   * 指向一条不存在的路径——规则永远为真、请求永远不来，于是被锁的能力实际全部敞开，
+   * 而且不会有任何报错。这条断言让形状回退当场变红。
+   */
+  it('spells every blocked prefix in the slash shape DSH actually serves', () => {
+    for (const prefix of blockedRpcPrefixes) {
+      expect(prefix, `${prefix} 不是 /api/<ns>/<method> 形状`).toMatch(BLOCKED_RPC_PREFIX_SHAPE)
+      expect(prefix, `${prefix} 仍用 0.1.1 的点号分隔`).not.toContain('.')
+    }
+  })
+
   it('names namespaces that exist in the pinned DSH version', () => {
-    expect(blockedDshRpc('/api/pluginInventory.list')).toBe(true)
-    expect(blockedDshRpc('/api/permissionPresets.list')).toBe(true)
-    expect(blockedDshRpc('/api/cordisInspect.describe')).toBe(true)
+    expect(blockedDshRpc('/api/pluginInventory/list')).toBe(true)
+    expect(blockedDshRpc('/api/permissionPresets/list')).toBe(true)
+    expect(blockedDshRpc('/api/cordisInspect/describe')).toBe(true)
     // 0.1.5 已无 host 命名空间；仍然拦得住只能说明规则写错了对象。
     expect(blockedDshRpc('/api/host.listDirectory')).toBe(false)
     expect(blockedDshRpc('/api/agentPreset.copy')).toBe(false)
@@ -46,21 +58,21 @@ describe('managed DSH Gateway policy', () => {
 
   it('allows the native DSH configuration plane only with platform write scope', () => {
     const scopes = ['assistant:use', 'assistant:platform:write']
-    expect(blockedDshRpc('/api/settings.describe', scopes)).toBe(false)
-    expect(blockedDshRpc('/api/settings.mutate', scopes)).toBe(false)
-    expect(blockedDshRpc('/api/credentials.describe', scopes)).toBe(false)
-    expect(blockedDshRpc('/api/credentials.set', scopes)).toBe(false)
-    expect(blockedDshRpc('/api/llm.discoverModels', scopes)).toBe(false)
-    expect(blockedDshRpc('/api/settings.openDocument', scopes)).toBe(true)
-    expect(blockedDshRpc('/api/cordisInspect.run', scopes)).toBe(true)
-    expect(blockedDshRpc('/api/pluginInventory.install', scopes)).toBe(true)
+    expect(blockedDshRpc('/api/settings/describe', scopes)).toBe(false)
+    expect(blockedDshRpc('/api/settings/mutate', scopes)).toBe(false)
+    expect(blockedDshRpc('/api/credentials/describe', scopes)).toBe(false)
+    expect(blockedDshRpc('/api/credentials/set', scopes)).toBe(false)
+    expect(blockedDshRpc('/api/llm/discoverModels', scopes)).toBe(false)
+    expect(blockedDshRpc('/api/settings/openDocument', scopes)).toBe(true)
+    expect(blockedDshRpc('/api/cordisInspect/run', scopes)).toBe(true)
+    expect(blockedDshRpc('/api/pluginInventory/install', scopes)).toBe(true)
   })
 
   it('pins every new session to the managed workspace and business preset', () => {
     const incoming = Buffer.from(JSON.stringify({
       type: 'client-request',
       rpcId: 'rpc-1',
-      method: 'session.create',
+      method: 'session/create',
       payload: {
         sessionId: 'session-client-selected',
         workspaceId: 'workspace-attacker-selected',
@@ -80,7 +92,7 @@ describe('managed DSH Gateway policy', () => {
 
   it('rejects attempts to choose another Agent Preset', () => {
     const incoming = Buffer.from(JSON.stringify({
-      method: 'session.create',
+      method: 'session/create',
       payload: { agentPreset: 'standard' },
     }))
     expect(() => prepareSessionCreateBody(incoming, {
