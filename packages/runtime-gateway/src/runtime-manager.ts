@@ -1,3 +1,4 @@
+import { request as httpRequest } from 'node:http'
 import { chmod, rename, writeFile } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
 
@@ -129,6 +130,69 @@ async function waitForReady(record: RuntimeRecord): Promise<void> {
   throw new Error(`DSH Runtime did not become ready: ${(await record.handle.logTail(STARTUP_LOG_LINES)).join('\n')}`)
 }
 
+
+/**
+ * One request to a Runtime with an explicit `Host`.
+ *
+ * `node:http`, not `fetch`, and that is the whole reason this exists: `fetch`
+ * silently drops a `Host` header, and this Host is load-bearing. DSH names its
+ * browser-auth cookie `dsh-auth-<sha256(authority)>` and signs the authority
+ * into the payload, where the authority is exactly this header. The Gateway
+ * proxies a browser request with the *caller's* Host — the public origin — so a
+ * cookie minted under the address the socket happens to use (a container name,
+ * or loopback) is a cookie under a different name, and every proxied request
+ * comes back 401 with DSH's own "reopen the URL printed by dsh web".
+ * @param target - origin the socket connects to.
+ * @param path - request path.
+ * @param options - method, the Host to present, an optional cookie and body.
+ * @returns status and body text.
+ */
+async function runtimeRequest(
+  target: string,
+  path: string,
+  options: {
+    readonly method: string
+    readonly host: string
+    readonly cookie?: string
+    readonly body?: string
+    readonly timeoutMs: number
+  },
+): Promise<{ status: number; body: string; setCookie: readonly string[] }> {
+  const upstream = new URL(path, target)
+  return new Promise((resolve, reject) => {
+    const request = httpRequest({
+      protocol: upstream.protocol,
+      hostname: upstream.hostname,
+      port: upstream.port,
+      path: `${upstream.pathname}${upstream.search}`,
+      method: options.method,
+      headers: {
+        host: options.host,
+        ...(options.cookie === undefined || options.cookie === '' ? {} : { cookie: options.cookie }),
+        ...(options.body === undefined
+          ? {}
+          : { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(options.body)) }),
+      },
+      timeout: options.timeoutMs,
+    }, response => {
+      let text = ''
+      response.setEncoding('utf8')
+      response.on('data', (chunk: string) => { text += chunk })
+      response.on('end', () => {
+        resolve({
+          status: response.statusCode ?? 0,
+          body: text,
+          setCookie: response.headers['set-cookie'] ?? [],
+        })
+      })
+    })
+    request.on('timeout', () => { request.destroy(new Error('runtime request timed out')) })
+    request.on('error', reject)
+    if (options.body !== undefined) request.write(options.body)
+    request.end()
+  })
+}
+
 /**
  * Trade the Runtime's startup token for its browser-auth cookie.
  *
@@ -148,30 +212,27 @@ async function waitForReady(record: RuntimeRecord): Promise<void> {
  */
 async function acquireRuntimeCookie(
   record: RuntimeRecord,
+  publicHost: string,
   log: ((message: string) => void) | undefined,
 ): Promise<string> {
   const token = await record.handle.startupToken()
   if (token === undefined) {
     // Worth saying out loud. Without a token there is no cookie, and without a
-    // cookie every RPC that follows answers 401 — an error that names the
-    // symptom and hides this cause completely.
-    log?.('DSH Gateway: Runtime announced no startup token; RPCs will be unauthenticated')
+    // cookie every request answers 401 — an error that names the symptom and
+    // hides this cause completely.
+    log?.('DSH Gateway: Runtime announced no startup token; requests will be unauthenticated')
     return ''
   }
   try {
-    // No `Host` override here, deliberately: `fetch` drops the header, so the
-    // cookie is minted for the socket authority — `record.target` — which is
-    // also the authority every later request carries. They agree because both
-    // go to the same place, not because anyone set them.
-    const response = await fetch(`${record.target}/?token=${encodeURIComponent(token)}`, {
-      // The handshake answers 303 to the app; following it would fetch the app
-      // shell for nothing and, worse, hide a non-redirect answer.
-      redirect: 'manual',
-      signal: AbortSignal.timeout(5_000),
+    const response = await runtimeRequest(record.target, `/?token=${encodeURIComponent(token)}`, {
+      method: 'GET',
+      // The public authority, not the one the socket uses: see `runtimeRequest`.
+      host: publicHost,
+      timeoutMs: 5_000,
     })
-    // Only the name=value pair travels back: attributes like Path and HttpOnly
+    // Only the name=value pair travels on: attributes like Path and HttpOnly
     // describe how a browser should store it, and this is not a browser.
-    const pairs = response.headers.getSetCookie().map(entry => entry.split(';', 1)[0]).filter(Boolean)
+    const pairs = response.setCookie.map(entry => entry.split(';', 1)[0]).filter(Boolean)
     if (pairs.length === 0) {
       log?.(`DSH Gateway: browser-auth handshake set no cookie (HTTP ${String(response.status)})`)
     }
@@ -182,33 +243,31 @@ async function acquireRuntimeCookie(
   }
 }
 
-async function ensureManagedWorkspace(record: RuntimeRecord): Promise<string> {
+async function ensureManagedWorkspace(record: RuntimeRecord, publicHost: string): Promise<string> {
   const rpcId = `bootstrap-workspace-${record.key}`
   const deadline = Date.now() + 10_000
   let lastFailure = 'DSH API did not become ready'
   while (Date.now() < deadline) {
     try {
-      const response = await fetch(`${record.target}/api/workspace/create`, {
+      const response = await runtimeRequest(record.target, '/api/workspace/create', {
         method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          ...(record.runtimeCookie === '' ? {} : { cookie: record.runtimeCookie }),
-        },
+        // Same authority the cookie was minted under; DSH checks the two agree.
+        host: publicHost,
+        cookie: record.runtimeCookie,
         // `args` is keyed by the method's own parameter names, not by the
         // request's fields: `WorkspaceController.create(request)` takes one
         // parameter called `request`, so the envelope nests one level deeper
-        // than it looks like it should. DSH checks the names against the
-        // descriptor and names the mismatch, which is how this was found.
+        // than it looks like it should.
         body: JSON.stringify({
           type: 'client-request',
           rpcId,
           method: 'workspace/create',
           payload: { args: { request: { path: record.workspace } } },
         }),
-        signal: AbortSignal.timeout(1_000),
+        timeoutMs: 5_000,
       })
-      const raw = await response.text()
-      if (!response.ok) {
+      const raw = response.body
+      if (response.status < 200 || response.status >= 300) {
         lastFailure = `HTTP ${String(response.status)}: ${raw.slice(0, 160)}`
       } else {
         const body = JSON.parse(raw) as {
@@ -358,8 +417,8 @@ export class RuntimeManager {
     await this.refreshLease(record, principal)
     try {
       await waitForReady(record)
-      record.runtimeCookie = await acquireRuntimeCookie(record, this.options.log)
-      record.managedWorkspaceId = await ensureManagedWorkspace(record)
+      record.runtimeCookie = await acquireRuntimeCookie(record, this.options.publicHost, this.options.log)
+      record.managedWorkspaceId = await ensureManagedWorkspace(record, this.options.publicHost)
       record.status = 'ready'
       return record
     } catch (error) {

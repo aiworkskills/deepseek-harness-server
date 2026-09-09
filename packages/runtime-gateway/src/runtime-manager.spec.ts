@@ -45,7 +45,12 @@ function fakeRuntimeServer(): Promise<{ server: Server; origin: string }> {
   const COOKIE = 'dsh-auth-test=granted'
   const server = createServer((request, response) => {
     const url = new URL(request.url ?? '/', 'http://runtime.invalid')
-    const authenticated = (request.headers.cookie ?? '').includes(COOKIE)
+    // DSH names the cookie after the request authority and signs that authority
+    // into it, so a cookie minted under one Host is invisible under another.
+    // The fake mirrors that: the Gateway proxies browser requests with the
+    // *public* Host, so everything it does must present the same one.
+    const authority = request.headers.host
+    const authenticated = authority === PUBLIC_HOST && (request.headers.cookie ?? '').includes(COOKIE)
     // Served without credentials, by spec — the one thing a Gateway can knock on.
     if (url.pathname === '/manifest.webmanifest') {
       response.end('{}')
@@ -53,6 +58,13 @@ function fakeRuntimeServer(): Promise<{ server: Server; origin: string }> {
     }
     // The handshake: a valid token buys the cookie every other path demands.
     if (url.pathname === '/' && url.searchParams.get('token') === FAKE_STARTUP_TOKEN) {
+      if (authority !== PUBLIC_HOST) {
+        // Minting under the socket's own authority is the bug this guards: it
+        // succeeds here and fails on every request the Gateway later proxies.
+        response.writeHead(400)
+        response.end(`handshake presented Host ${String(authority)}, expected ${PUBLIC_HOST}`)
+        return
+      }
       response.writeHead(303, { 'set-cookie': `${COOKIE}; Path=/; HttpOnly`, location: '/' })
       response.end()
       return
@@ -91,6 +103,9 @@ function fakeRuntimeServer(): Promise<{ server: Server; origin: string }> {
     })
   })
 }
+
+/** The authority the Gateway is reached at, and the only one the fake trusts. */
+const PUBLIC_HOST = 'dsh.example.com'
 
 /** The token the fake Runtime announces, and the only one its handshake accepts. */
 const FAKE_STARTUP_TOKEN = 'fake-startup-token'
@@ -170,7 +185,7 @@ async function makeManager(backend: RuntimeBackend, idleMs = 60_000): Promise<Ru
       configRoot: join(repoRoot, 'config'),
       runtimePlugins: [{ packageName: '@test/plugin', root: pluginRoot, artifacts: ['dist/index.js'] }],
       internalOrigin: origin,
-      publicHost: '127.0.0.1:4173',
+      publicHost: PUBLIC_HOST,
       idleMs,
       disabled: false,
       backend,

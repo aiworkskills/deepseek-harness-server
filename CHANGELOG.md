@@ -7,6 +7,15 @@
 
 ### Fixed
 
+- **浏览器经网关访问 Runtime 一律 401。** DSH 的浏览器鉴权 cookie 名是
+  `dsh-auth-<sha256(authority)>`，authority 就是请求的 `Host`，并且还签进 payload——
+  所以在一个 authority 下换到的 cookie，在另一个 authority 下连名字都对不上。网关握手
+  用的是 `fetch`，而 `fetch` **会静默丢弃 `Host` 头**，于是 cookie 绑在了 socket 实际
+  连接的地址上（容器后端是容器名，进程后端是回环）；而代理转发浏览器请求时保留的是
+  调用方的 Host，也就是对外域名。两者不同，DSH 回 401 并附上自己的
+  「reopen the URL printed by dsh web」。改用 `node:http` 显式设置 `Host` 为对外
+  authority，握手与网关自己的引导 RPC 都绑到同一个上。
+
 - **普通用户的 Runtime 在 DSH 0.1.5 上起不来（EROFS）。** 0.1.5 起
   `dsh-client-connection` 装载时无条件调 `credentials.modifyRecord` 给浏览器鉴权生成
   签名密钥，而 `modifyRecord` **先加锁再判断要不要写**——所以哪怕记录已存在、无需写入，
