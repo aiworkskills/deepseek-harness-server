@@ -28,6 +28,10 @@ import { request as httpRequest } from 'node:http'
 
 import { startupTokenOf, type RuntimeBackend, type RuntimeHandle, type RuntimeStart } from './runtime-backend.js'
 
+/** How long to wait for the Runtime to announce its startup token, and how often to look. */
+const STARTUP_TOKEN_TIMEOUT_MS = 20_000
+const STARTUP_TOKEN_POLL_MS = 250
+
 export interface ContainerBackendOptions {
   /** Image every Runtime container starts from. */
   readonly image: string
@@ -240,22 +244,34 @@ export class ContainerRuntimeBackend implements RuntimeBackend {
         }
       },
       /**
-       * Read the announcement out of the container's own log stream.
+       * Read the announcement out of the container's own log stream, waiting
+       * for it to appear.
        *
-       * No streaming subscription: the caller asks once, after readiness, so the
-       * line is already there. A tail deep enough to clear DSH's own startup
-       * chatter is cheaper than holding an attach open for every Runtime.
+       * Polling, not a single read: DSH prints the line *after* its webserver
+       * binds, so a caller that asks the moment readiness passes can easily ask
+       * before the line exists. A one-shot read returned `undefined` there, the
+       * Gateway then skipped the handshake, and every RPC it made came back 401
+       * — with nothing in any log to say why. The process backend does not have
+       * this shape because it awaits the line on the live stream.
+       *
+       * A tail deep enough to clear DSH's own startup chatter is cheaper than
+       * holding an attach open for every Runtime.
        */
       startupToken: async () => {
-        try {
-          const logs = await dockerCall(options.docker, 'GET', `/containers/${id}/logs?stdout=true&stderr=true&tail=200`)
-          for (const line of demuxDockerLogs(logs.body)) {
-            const token = startupTokenOf(line)
-            if (token !== undefined) return token
+        const deadline = Date.now() + STARTUP_TOKEN_TIMEOUT_MS
+        while (Date.now() < deadline) {
+          if (cause !== null) return undefined
+          try {
+            const logs = await dockerCall(options.docker, 'GET', `/containers/${id}/logs?stdout=true&stderr=true&tail=200`)
+            for (const line of demuxDockerLogs(logs.body)) {
+              const token = startupTokenOf(line)
+              if (token !== undefined) return token
+            }
+          } catch {
+            // Same posture as `logTail`: a log fetch that fails must not mask
+            // the caller's own error, and "no token" is already handled.
           }
-        } catch {
-          // Same posture as `logTail`: a log fetch that fails must not mask the
-          // caller's own error, and "no token" is already a handled outcome.
+          await new Promise(resolveDelay => setTimeout(resolveDelay, STARTUP_TOKEN_POLL_MS))
         }
         return undefined
       },
