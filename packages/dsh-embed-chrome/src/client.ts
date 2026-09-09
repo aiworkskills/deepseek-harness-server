@@ -12,7 +12,7 @@
  * unchanged, rather than a set of empty holes where the brand used to be.
  */
 import { createElement as h, useSyncExternalStore } from 'react'
-// `slots` comes from ui-renderer; the three slot names this plugin fills are
+// `slots` comes from ui-renderer; the two slot names this plugin fills are
 // declared by ui-sidebar and ui-conversation, so those two type-only imports are
 // what put the matching `SlotMap` keys on the map.
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
@@ -72,11 +72,6 @@ export function apply(ctx: ClientContext): void {
     })
   }
 
-  /** Nothing: the sidebar mark is the product's, and this is not the product. */
-  function MarkSlot() {
-    return null
-  }
-
   function HeroSlot() {
     const state = useSyncExternalStore(store.subscribe, store.snapshot, store.snapshot)
     if (state?.headline === undefined) return null
@@ -87,25 +82,36 @@ export function apply(ctx: ClientContext): void {
   }
 
   /**
-   * Take the brand seats now, before the page has answered.
+   * Take the brand name seat now, before the page has answered.
    *
-   * Registering only on the first answer meant the stock mark and the
-   * `DSH Local Build <sha>` fallback rendered for the whole round trip —
-   * another product's identity, flashing in this one's frame on every load.
-   * Being framed at all is a synchronous fact, so the seats are claimed
-   * synchronously and render nothing until there is something to say.
+   * Registering only on the first answer meant the `DSH Local Build <sha>`
+   * fallback rendered for the whole round trip — another product's identity,
+   * flashing in this one's frame on every load. Being framed at all is a
+   * synchronous fact, so the seat is claimed synchronously and renders nothing
+   * until there is something to say.
    *
    * The trade is deliberate: a deployment that composes this plugin, frames the
-   * Runtime, and then never implements the page side gets a blank brand instead
-   * of DSH's. `release()` below restores the fallback for the one case we can
-   * actually detect — no configured origin.
+   * Runtime, and then never implements the page side gets a blank brand line
+   * instead of DSH's. `release()` below restores the fallback for the one case
+   * we can actually detect — no configured origin.
+   *
+   * **The mark seat is deliberately left to DSH.** Occupying it and rendering
+   * nothing looked right in the expanded sidebar and was wrong in the rail: DSH
+   * renders that slot inside the collapse toggle as its resting state, with the
+   * panel icon appearing only on hover. An empty occupant therefore left a
+   * control with no resting visual — and, because a slot's `fallback` applies
+   * only when *nothing* is registered, it also suppressed DSH's own mark.
+   *
+   * There is nothing to put there instead: this plugin's protocol carries a
+   * brand *line*, a headline and workspaces, but no image — the embedding page
+   * cannot supply a mark even if it wants to. So the honest posture is to leave
+   * the seat empty-handed rather than take it empty-handed. Giving the host
+   * page real control here means adding a mark to `ChromeState`, not holding a
+   * seat we can never fill.
    */
   const claimBrand = (): void => {
     brandMounted ??= ctx.slots.inject('sidebar.brand.name', () =>
-      ctx.slots.inject('sidebar.brand.mark', function* () {
-        yield ctx.slots.register({ name: 'sidebar.brand.name' }, BrandSlot)
-        yield ctx.slots.register({ name: 'sidebar.brand.mark' }, MarkSlot)
-      }))
+      ctx.slots.register({ name: 'sidebar.brand.name' }, BrandSlot))
   }
 
   const release = (): void => {

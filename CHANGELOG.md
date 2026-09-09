@@ -7,6 +7,13 @@
 
 ### Fixed
 
+- **折叠侧栏里的折叠按钮没有静息状态。** `dsh-embed-chrome` 占着 `sidebar.brand.mark`
+  却渲染 `null`——展开态看着对（宿主的文字已承载身份），折叠态是错的：DSH 把那个槽位
+  渲染在折叠按钮**内部**当静息状态，面板图标只在悬停时出现，所以空占据者留下的是一个
+  不悬停就看不见的控件。而且槽位的 `fallback` 只在无人注册时生效，占着它连 DSH 自己的
+  兜底也一起顶掉了。改为只占 `sidebar.brand.name`。协议里没有图片字段，宿主页给不出
+  标记，占着这个位置永远没东西可画；要让嵌入方真正掌控它，得给 `ChromeState` 加字段。
+
 - **三个 Agent Preset 在 0.1.5 上挂不起来。** `@deepseek-ai/dsh-persona` 把 config 键
   `text` 改名成了 `prefix`（并新增可选的 `suffix`），旧名字在新版上不是被忽略，而是
   `$.prefix missing required value`，导致 Preset 挂载失败、会话根本创建不出来。
