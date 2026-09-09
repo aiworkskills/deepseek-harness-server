@@ -24,6 +24,7 @@ for (const path of [
   '.github/workflows/ci.yml', '.github/workflows/release.yml', '.github/dependabot.yml',
   'docs/ARCHITECTURE.md', 'docs/compatibility.md', 'docs/configuration.md',
   'docs/integration.md', 'docs/security-model.md', 'docs/tools-and-api.md',
+  'docs/FAILURE-MODES.md', 'AGENTS.md', 'CLAUDE.md',
   'examples/local-smoke/smoke.mjs',
 ]) {
   if (!existsSync(join(root, path))) fail(`缺少发布文件: ${path}`)
