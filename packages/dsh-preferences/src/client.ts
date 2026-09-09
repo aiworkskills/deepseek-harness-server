@@ -3,8 +3,15 @@
  * accept prepared sentences from the embedding business system, and contribute
  * the tenant policy card to DSH's native settings page.
  */
+// The browser half's context is plain cordis `Context`; each UI package declares
+// its own service onto it. So every service this plugin injects arrives through
+// one of the type-only imports below — `slots` from ui-renderer, `sessions` from
+// api-session-controller (NOT ui-session, whose `uiSession` is a different
+// service), `settingsScope` from ui-settings. Dropping one does not fail the
+// build: it removes a service from `Context` and silently degrades its uses.
 import type { Context } from '@deepseek-ai/cordis'
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type {} from '@deepseek-ai/dsh-api-session-controller/client'
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
@@ -48,7 +55,7 @@ interface ConversationFace {
 }
 
 /** Resolve the current session's composer, or undefined while none is live. */
-function composerTarget(client: ClientContext): ComposerTarget | undefined {
+function composerTarget(client: Context): ComposerTarget | undefined {
   const sessionId = client.sessions.list.getSnapshot().current
   if (sessionId === undefined) return undefined
   const conversation = client.get('conversation') as ConversationFace | undefined
@@ -91,8 +98,7 @@ function post(target: Window | null, message: ComposerReply): void {
  */
 export function installComposerBridge(ctx: Context): void {
   if (typeof window === 'undefined') return
-  const client = ctx as ClientContext
-  const bridge = new ComposerBridge(() => composerTarget(client))
+  const bridge = new ComposerBridge(() => composerTarget(ctx))
 
   const listener = (event: MessageEvent<unknown>): void => {
     const source = event.source as Window | null
@@ -109,7 +115,7 @@ export function installComposerBridge(ctx: Context): void {
 
   // A sentence can arrive before a session or the conversation UI exists. Both
   // arrivals are a chance to deliver what the bridge is still holding.
-  ctx.effect(() => client.sessions.list.subscribe(() => { bridge.flush() }),
+  ctx.effect(() => ctx.sessions.list.subscribe(() => { bridge.flush() }),
     'dshserver-preferences: composer handoff flush')
   ctx.inject(['conversation'], () => { bridge.flush() })
 
@@ -128,11 +134,10 @@ export function apply(ctx: Context): void {
 
   installComposerBridge(ctx)
 
-  const client = ctx as ClientContext
-  const scope = client.settingsScope.bind<ConnectorSettings>({ namespace: CONNECTOR_SETTINGS_NAMESPACE })
+  const scope = ctx.settingsScope.bind<ConnectorSettings>({ namespace: CONNECTOR_SETTINGS_NAMESPACE })
   // `settings.plugin.item` is a keyed slot: the tab dispatches by settings
   // namespace, pairing this card with the Host section of the same name.
-  client.slots.inject('settings.plugin.item', () => client.slots.register({
+  ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
     name: 'settings.plugin.item',
     key: CONNECTOR_SETTINGS_NAMESPACE,
   }, () => h(ConnectorSettingsCard, { scope })))

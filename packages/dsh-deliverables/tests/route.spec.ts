@@ -162,11 +162,12 @@ describe('kind and content type', () => {
   it('routes each extension to how the browser half should show it', () => {
     expect(deliverableKind('a/b.html')).toBe('html')
     expect(deliverableKind('cover.PNG')).toBe('image')
-    expect(deliverableKind('notes.md')).toBe('markdown')
-    expect(deliverableKind('data.json')).toBe('json')
-    expect(deliverableKind('run.py')).toBe('text')
     expect(deliverableKind('archive.zip')).toBe('binary')
     expect(deliverableKind('Makefile')).toBe('binary')
+    // 文本类不再归本插件：侧栏内置预览会分页读、能跳行，比这里强。它们连
+    // `binary` 都不该落到——因为这个类型压根不认领它们（见 address.spec.ts）。
+    expect(deliverableKind('notes.md')).toBe('binary')
+    expect(deliverableKind('run.py')).toBe('binary')
   })
 
   it('declares octet-stream for anything it cannot name', () => {

@@ -7,9 +7,20 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
+// Type-only: this package needs nothing from DSH Settings at runtime, only the
+// declaration that puts `settings` on `Context`. A plain side-effect import would
+// survive compilation, and a plugin linked into a profile has no `node_modules` of
+// its own to resolve it from.
+import type {} from '@deepseek-ai/dsh-settings'
 
-export const CONNECTOR_SETTINGS_NAMESPACE = settingsNamespace('dshserver-integration')
+/**
+ * The namespace this connector owns.
+ *
+ * A plain literal, and it must stay one: `register` and `get` validate the
+ * namespace's shape at the type level, which only works while this keeps its
+ * narrow literal type. Widening it to `string` silently disables that check.
+ */
+export const CONNECTOR_SETTINGS_NAMESPACE = 'dshserver-integration'
 
 export const TIMEOUT_LIMITS = { min: 1_000, max: 120_000, fallback: 15_000 } as const
 export const WRITE_REASON_LIMITS = { min: 2, max: 200, fallback: 2 } as const
@@ -54,10 +65,15 @@ export function assertConnectorSettings(settings: ConnectorSettings): void {
  * own and has nothing to recompute when the administrator saves a change.
  */
 export function installConnectorSettings(ctx: Context, base: ConnectorSettings): void {
-  installSettingsSection(ctx, CONNECTOR_SETTINGS_NAMESPACE, ConnectorSettingsSchema, base, {
+  // `register`，不是 `installSection`：后者多出的 setSource/onChange 是给那些缓存配置、
+  // 需要在 provider 脱离时回退到组合期入参的消费者用的，而这个消费者两样都不做——
+  // `connectorSettings()` 每次调用重新读一次，并自带回退。
+  //
+  // 也不需要在这里 `ctx.inject(['settings'], …)`：调用方 `settings.ts` 已声明
+  // `inject = ['settings']`，没有 provider 时 cordis 不会执行到这里。
+  ctx.settings.register(CONNECTOR_SETTINGS_NAMESPACE, ConnectorSettingsSchema, {
+    base,
     validate: assertConnectorSettings,
-    setSource: () => {},
-    onChange: () => {},
   })
 }
 

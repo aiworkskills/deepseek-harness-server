@@ -1,97 +1,99 @@
 /**
- * Browser half: a produced file opens in the details panel, not on the server.
+ * Browser half: a produced file opens in the Sidebar, not on the server.
  *
- * DSH's produced-file chips, its inline file mentions and its tool rows all
- * open a file the same way — `workspaces.openPath`, which hands the path to
- * the *Host's* desktop opener. That is right when the browser and the Host are
- * one machine. In a hosted deployment they are not: the call reaches a server
- * with no desktop and no user in front of it, so the only possible answer is a
- * refusal, and the file the user was just told about stays out of reach.
+ * In a hosted deployment the browser and the Runtime host are different
+ * machines, and that host has no desktop and nobody sitting at it. So "open
+ * this file" cannot mean "hand the path to the host's opener" — the only
+ * possible answer would be a refusal, for a file the user was just told about.
  *
- * So this plugin changes what opening means here, at the one place all three
- * surfaces go through: it decorates `workspaces.openPath` at composition time.
- * A path inside the current session's workspace is shown in the details panel;
- * anything else is delegated to the original, unchanged.
+ * This plugin registers one right-Sidebar tab type that draws such a file in
+ * the browser instead. It claims by extension, and only the kinds the Sidebar's
+ * builtin text viewer cannot show: a rendered page, an image, and the
+ * office/PDF formats it would print as mojibake. Markdown, JSON and source fall
+ * through to that builtin, which pages them and tracks lines.
  *
- * The alternative was replacing DSH's deliverables plugin with a copy whose
- * chips call something else. That needs the accumulator deciding what a turn
- * "produced", which lives inside that plugin and is absent from its published
- * package (its `files` ships `lib` only) — so it would have to be re-derived
- * from internal event shapes and would drift silently the first time they
- * changed. Decorating one method leaves that vocabulary where it belongs and
- * fixes the chips, the mentions and the tool rows together.
+ * Closing the host-desktop exit is a separate, load-bearing job that this
+ * plugin cannot do from the browser: it lives in the Gateway's RPC blocklist
+ * (`session.openWorkspacePath`) and the profile's `open-in-app` switch. See
+ * this package's README — a deployment that registers the tab type but leaves
+ * that exit open has fixed nothing.
  */
-import { createElement as h, useSyncExternalStore } from 'react'
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
-import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+import { createElement as h, memo, useMemo, type ReactNode } from 'react'
+// Type-only, all of it: this bundle is linked into a profile with no
+// `node_modules` beside it and may import nothing at runtime but React.
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { SidebarRightTabDefinition } from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 
-import { DETAILS_PRIORITY } from './contract.js'
+import {
+  DELIVERABLE_TAB_ID, DELIVERABLE_TAB_KIND, DELIVERABLE_TAB_PATTERNS, parseSessionFileAddress,
+} from './contract.js'
 import { Preview } from './client/Preview.js'
-import { createSelectionStore } from './client/store.js'
+import { basename } from './client/basename.js'
 
-export { createSelectionStore, type Selection, type SelectionStore } from './client/store.js'
-export { Preview } from './client/Preview.js'
-export { basename } from './client/basename.js'
-export { workspaceRelative } from './client/relative.js'
+/** Same tree for the same file; the layout churn above must not redraw it. */
+const MemoPreview = memo(Preview)
 
-import { workspaceRelative } from './client/relative.js'
+export {
+  DELIVERABLE_TAB_ID, DELIVERABLE_TAB_KIND, DELIVERABLE_TAB_PATTERNS, PREVIEWED_EXTENSIONS,
+  parseSessionFileAddress,
+} from './contract.js'
 
-export const inject = ['slots', 'layout', 'sessions', 'workspaces']
+export const inject = ['slots', 'sidebarRightTabs']
 
-/** The shape this plugin decorates; the runtime service has much more on it. */
-interface OpenPathFace {
-  openPath(path: string): Promise<void>
+/** The body's composed props: the tab hook and the session standard kit. */
+export type DeliverablePreviewProps = PropsRuntime<'sidebar.right.pane.tab'>
+
+/**
+ * What this type IS, as the registry lists it.
+ *
+ * No `priority`: the default is `extension`, which is the honest band for a type
+ * from outside the product and the one that outranks the builtin viewer.
+ * @returns the definition to register.
+ */
+export function deliverableTabDefinition(): SidebarRightTabDefinition {
+  return {
+    id: DELIVERABLE_TAB_ID,
+    kind: DELIVERABLE_TAB_KIND,
+    patterns: DELIVERABLE_TAB_PATTERNS,
+    // The globs match on extension alone, which says nothing about scope. An
+    // `absolute` address is a real file the builtin can still show, so declining
+    // it here is what keeps it viewable rather than broken.
+    canOpen: (address) => parseSessionFileAddress(address) !== null,
+    title: (address) => {
+      const parsed = parseSessionFileAddress(address)
+      return parsed === null ? address : basename(parsed.path)
+    },
+  }
+}
+
+/**
+ * One produced file's tab body.
+ *
+ * The address is the content identity, so the path comes from it rather than
+ * from any state this plugin keeps: a tab restored into a new page load draws
+ * the same file without this plugin having persisted anything.
+ * @param props - composed slot props.
+ * @returns the file, or nothing when the address is not one this type opens.
+ */
+export function DeliverablePreview({ useTabInfo }: DeliverablePreviewProps): ReactNode {
+  const { tab } = useTabInfo()
+  // `useTabInfo` re-memoizes on the whole sidebar layout, so a split drag hands
+  // us a new `tab` on every pointer-move. The address is the only input that
+  // matters, and re-parsing it per frame is pure waste.
+  const parsed = useMemo(() => parseSessionFileAddress(tab.contentId), [tab.contentId])
+  // Defensive: `canOpen` declined these, so only a restored tab could arrive here.
+  if (parsed === null) return null
+  return h(MemoPreview, { sessionId: parsed.sessionId, path: parsed.path })
 }
 
 export function apply(ctx: ClientContext): void {
-  const store = createSelectionStore()
-  let mounted: (() => void) | undefined
+  ctx.effect(() => ctx.sidebarRightTabs.register(deliverableTabDefinition()),
+    'dshserver-deliverables: produced-file tab type')
 
-  const close = (): void => {
-    store.clear()
-    mounted?.()
-    mounted = undefined
-    ctx.layout.closeDetails()
-  }
-
-  function DetailsPreview() {
-    const selection = useSyncExternalStore(store.subscribe, store.snapshot, store.snapshot)
-    if (selection === null) return null
-    return h(Preview, { sessionId: selection.sessionId, path: selection.path, onClose: close })
-  }
-
-  const show = (sessionId: string, path: string): void => {
-    store.select({ sessionId, path })
-    // The details panel is a single seat, so the registration is held only
-    // while a preview is open — otherwise this plugin would keep the seat from
-    // whatever else a deployment puts there for the rest of the session.
-    mounted ??= ctx.slots.inject('details', () => ctx.slots.register({
-      name: 'details',
-      priority: DETAILS_PRIORITY,
-    }, DetailsPreview))
-    ctx.layout.openDetails()
-  }
-
-  const workspaces = ctx.workspaces as unknown as OpenPathFace
-  const original = workspaces.openPath.bind(workspaces)
-
-  workspaces.openPath = async (path: string): Promise<void> => {
-    const sessions = ctx.sessions.list.getSnapshot()
-    const sessionId = sessions.current
-    const cwd = sessionId === undefined ? undefined : sessions.byId[sessionId]?.cwd
-    const relative = cwd === undefined ? null : workspaceRelative(cwd, path)
-    if (sessionId === undefined || relative === null) {
-      // A directory, or something outside this session's workspace. Not ours to
-      // show, and swallowing it would turn a real failure into silence.
-      await original(path)
-      return
-    }
-    show(sessionId, relative)
-  }
-
-  ctx.effect(() => () => {
-    workspaces.openPath = original
-    mounted?.()
-    mounted = undefined
-  }, 'dshserver-deliverables: open-path takeover')
+  ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register(
+    { name: 'sidebar.right.pane.tab', key: DELIVERABLE_TAB_ID },
+    DeliverablePreview,
+  )), 'dshserver-deliverables: produced-file tab body')
 }

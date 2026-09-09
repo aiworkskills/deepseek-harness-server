@@ -29,8 +29,10 @@ import {
   DELIVERABLE_FILE_ROUTE, contentTypeOf, parseDeliverableRequest,
 } from './contract.js'
 
+// Route vocabulary only. The tab-system vocabulary is the browser half's and is
+// exported from `./client`, which is where a consumer that cares about it lives.
 export {
-  DELIVERABLE_FILE_ROUTE, DETAILS_PRIORITY, contentTypeOf, deliverableFileUrl, deliverableKind,
+  DELIVERABLE_FILE_ROUTE, contentTypeOf, deliverableFileUrl, deliverableKind,
   extensionOf, parseDeliverableRequest, type DeliverableKind,
 } from './contract.js'
 

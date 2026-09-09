@@ -12,8 +12,12 @@
  * unchanged, rather than a set of empty holes where the brand used to be.
  */
 import { createElement as h, useSyncExternalStore } from 'react'
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+// `slots` comes from ui-renderer; the three slot names this plugin fills are
+// declared by ui-sidebar and ui-conversation, so those two type-only imports are
+// what put the matching `SlotMap` keys on the map.
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 
 import { EMBED_CHROME_ROUTE, type EmbedHostInfo } from './contract.js'

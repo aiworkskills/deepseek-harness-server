@@ -273,7 +273,14 @@ async function main() {
     console.log('\n1. 团队管理者：读取、统计与写入')
     const manager = createHostStub()
     apply(manager.ctx, baseConfig)
-    check('注册了 4 个业务工具', manager.toolNames().length === 4, manager.toolNames().join(', '))
+    // `attach_deliverable` 不受 `exposedTools` 约束，也不在 BUSINESS_TOOL_NAMES 里：它不碰
+    // 业务 API、不携带 Scope，守卫没有可判断的东西。所以数出来是 exposedTools 的长度加一。
+    // 断成分而不只断个数——否则未来换掉一个业务工具，个数不变，这条仍然会绿。
+    const expectedTools = [...baseConfig.exposedTools, 'attach_deliverable']
+    check('注册了受 exposedTools 约束的业务工具，外加不受约束的 attach_deliverable',
+      manager.toolNames().length === expectedTools.length
+        && expectedTools.every(name => manager.toolNames().includes(name)),
+      manager.toolNames().join(', '))
 
     const list = await manager.call('business_list_customers', { stage: '商务谈判' })
     check('list_customers 返回团队可见数据', list.outcome === 'ok' && list.value.visibility === 'team' && list.value.total === 1,

@@ -115,7 +115,7 @@ describe('gateway request policy', () => {
 
   it('refuses a locked RPC', async () => {
     const { gateway, onDenied } = harness()
-    const response = await call(gateway, '/api/cordis.install')
+    const response = await call(gateway, '/api/cordisInspect.install')
     expect(response.status).toBe(403)
     expect(response.body).toContain('managed_capability_locked')
     expect(onDenied).toHaveBeenCalledWith(expect.objectContaining({ denial: 'managed_capability_locked' }))
@@ -157,8 +157,8 @@ describe('gateway request policy', () => {
     const { gateway, onDenied } = harness({
       lockedRpcMessage: path => `no ${path} here`,
     })
-    const response = await call(gateway, '/api/host.openPath', {
-      type: 'client-request', rpcId: 'rpc-7', method: 'host.openPath', payload: { path: '/x' },
+    const response = await call(gateway, '/api/session.openWorkspacePath', {
+      type: 'client-request', rpcId: 'rpc-7', method: 'session.openWorkspacePath', payload: { path: '/x' },
     })
     expect(response.status).toBe(200)
     const body = JSON.parse(response.body) as {
@@ -171,7 +171,7 @@ describe('gateway request policy', () => {
     // a guessed one would replace the explanation with a mismatch error.
     expect(body.rpcId).toBe('rpc-7')
     expect(body.result.ok).toBe(false)
-    expect(body.result.error.message).toBe('no /api/host.openPath here')
+    expect(body.result.error.message).toBe('no /api/session.openWorkspacePath here')
     expect(body.result.error.details).toEqual({})
     // Still a refusal: audited, and nothing reached a Runtime.
     expect(onDenied).toHaveBeenCalledWith(expect.objectContaining({ denial: 'managed_capability_locked' }))
@@ -181,7 +181,7 @@ describe('gateway request policy', () => {
     // No client request means no conversation to answer; inventing an envelope
     // would only disguise that.
     const { gateway } = harness()
-    expect((await call(gateway, '/api/cordis.install')).status).toBe(403)
+    expect((await call(gateway, '/api/cordisInspect.install')).status).toBe(403)
   })
 
   it('reports a Runtime that will not start as a service error, not a refusal', async () => {

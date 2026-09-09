@@ -14,34 +14,94 @@
 export const DELIVERABLE_FILE_ROUTE = '/plugins/dshserver/deliverables/file'
 
 /**
- * This plugin's shadowing rank in the `details` slot (ascending, lowest renders).
+ * This implementation's identity in the Sidebar tab system.
  *
- * The preview is a *transient overlay*: the registration is held only while a
- * file is open and released on close, so it sits well below the default rank (0)
- * and a persistent panel gets its seat back the moment the preview closes.
- *
- * Exported rather than written inline at the registration, because the number is
- * an assembly-time fact: DSH throws on a second registration at the same slot and
- * the same rank, naming the occupant. A deployment stacking another details panel
- * needs to be able to read this to know whether the two collide, and which wins.
+ * The registry keys a type's body seat on its `id`, not its `kind`: a kind is
+ * not unique, because an extension may take a builtin's. A package name is the
+ * natural value for an id that must not collide with anyone else's.
  */
-export const DETAILS_PRIORITY = -20
+export const DELIVERABLE_TAB_ID = '@dshserver/dsh-deliverables'
 
-/** How the browser half decides what to render. */
-export type DeliverableKind = 'html' | 'image' | 'markdown' | 'text' | 'json' | 'binary'
+/** Type discriminator for tabs this plugin opens. */
+export const DELIVERABLE_TAB_KIND = 'deliverable'
 
-/** Extension → kind, lowercase and without the dot. */
-const KINDS: ReadonlyArray<readonly [DeliverableKind, readonly string[]]> = [
-  ['html', ['html', 'htm']],
-  ['image', ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'avif', 'bmp', 'ico']],
-  ['markdown', ['md', 'markdown']],
-  ['json', ['json']],
-  ['text', [
-    'txt', 'log', 'csv', 'tsv', 'yaml', 'yml', 'toml', 'ini', 'env', 'sql',
-    'js', 'mjs', 'cjs', 'ts', 'tsx', 'jsx', 'css', 'scss', 'py', 'rb', 'go',
-    'rs', 'java', 'kt', 'c', 'h', 'cpp', 'sh', 'bash', 'zsh', 'xml', 'svgz',
-  ]],
+/**
+ * How the browser half decides what to render.
+ *
+ * Three kinds, not six: this plugin claims only what the Sidebar's builtin text
+ * viewer cannot show. Markdown, JSON and source text reach that builtin instead
+ * (it pages them and tracks lines), so no kind here names them.
+ */
+export type DeliverableKind = 'html' | 'image' | 'binary'
+
+/**
+ * The extension lists, declared once.
+ *
+ * Everything downstream is derived: {@link deliverableKind} routes rendering,
+ * {@link PREVIEWED_EXTENSIONS} decides what this type claims from the builtin
+ * viewer, and {@link DELIVERABLE_TAB_PATTERNS} turns that into address globs.
+ * They used to be three hand-maintained lists that had to be edited together;
+ * adding an extension to one and not the others produced a file the tab claimed
+ * but could not render, or one it rendered but never claimed.
+ */
+const HTML_EXTENSIONS = ['html', 'htm'] as const
+const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'avif', 'bmp', 'ico'] as const
+/** Claimed so the builtin does not print them as mojibake, then offered as a download. */
+const DOWNLOAD_ONLY_EXTENSIONS = ['pdf', 'docx', 'pptx', 'xlsx'] as const
+
+/**
+ * Extensions this type claims from the Sidebar's built-in text viewer.
+ *
+ * Only the kinds that viewer cannot show: a rendered page, an image, and the
+ * office/PDF formats it would otherwise print as mojibake. Markdown, JSON and
+ * source text are deliberately absent — the builtin reads them a page at a time
+ * with line navigation and reload, which is more than the single `<pre>` this
+ * plugin drew when it owned every kind.
+ *
+ * The claim wins by band, not by this list: a definition that names no priority
+ * is `extension`, which outranks the builtin's `fallback` for any address both
+ * match. Anything absent here falls through to that builtin untouched.
+ */
+export const PREVIEWED_EXTENSIONS: readonly string[] = [
+  ...HTML_EXTENSIONS, ...IMAGE_EXTENSIONS, ...DOWNLOAD_ONLY_EXTENSIONS,
 ]
+
+/**
+ * Resource-address globs for {@link PREVIEWED_EXTENSIONS}.
+ *
+ * A pattern with no `:` is matched against the address's path at any depth, so
+ * `*.html` catches `dsh-resource://file/session/s1/reports/q4.html`.
+ */
+export const DELIVERABLE_TAB_PATTERNS: readonly string[] =
+  PREVIEWED_EXTENSIONS.map(extension => `*.${extension}`)
+
+/**
+ * Read a `dsh-resource://file/session/<id>/<path>` address into its parts.
+ *
+ * A deliberate local copy of DSH's `parseFileAddress`: this package is symlinked
+ * into a profile with no `node_modules` beside it, so the browser half may import
+ * nothing at runtime but React — `tests/bundle.spec.ts` holds that line, and it
+ * has been broken twice already.
+ *
+ * Only the `session` scope is read. An `absolute` address names a file outside
+ * any session workspace, which {@link deliverableFileUrl} cannot address and this
+ * plugin's route would refuse; `canOpen` declines those so the builtin keeps them.
+ */
+export function parseSessionFileAddress(address: string): { sessionId: string; path: string } | null {
+  try {
+    const url = new URL(address)
+    if (url.protocol !== 'dsh-resource:' || url.host !== 'file') return null
+    const [, scope, id, ...segments] = url.pathname.split('/')
+    if (scope !== 'session' || id === undefined || id === '' || segments.length === 0) return null
+    const sessionId = decodeURIComponent(id)
+    const path = segments.map(decodeURIComponent).join('/')
+    return sessionId === '' || path === '' ? null : { sessionId, path }
+  } catch {
+    // `new URL` throws on a non-URL and `decodeURIComponent` on a malformed
+    // escape; both mean "not an address this type can open".
+    return null
+  }
+}
 
 /** Content types for the kinds served as documents rather than downloads. */
 const CONTENT_TYPES: Readonly<Record<string, string>> = {
@@ -79,9 +139,8 @@ export function extensionOf(path: string): string {
 /** What the browser half should render for this path. */
 export function deliverableKind(path: string): DeliverableKind {
   const extension = extensionOf(path)
-  for (const [kind, extensions] of KINDS) {
-    if (extensions.includes(extension)) return kind
-  }
+  if ((HTML_EXTENSIONS as readonly string[]).includes(extension)) return 'html'
+  if ((IMAGE_EXTENSIONS as readonly string[]).includes(extension)) return 'image'
   return 'binary'
 }
 

@@ -70,7 +70,7 @@ Runtime 租约，然后用真插件跑五个场景：授权读取、缺少 Scope
 
 ```bash
 pnpm add @dshserver/dsh-integration
-pnpm add -D @deepseek-ai/dsh-tools@0.1.1-rc.2 @deepseek-ai/dsh-settings@0.1.1-rc.2 @deepseek-ai/cordis@4.0.1 @deepseek-ai/schemastery@3.18.1
+pnpm add -D @deepseek-ai/dsh-tools@0.1.5-alpha.1 @deepseek-ai/dsh-settings@0.1.5-alpha.1 @deepseek-ai/cordis@4.0.2 @deepseek-ai/schemastery@3.18.2
 ```
 
 在 Agent Preset 中加载：

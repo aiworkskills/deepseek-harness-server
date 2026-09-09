@@ -112,6 +112,37 @@
 - id: directory-picker
   disabled: true
 
+# 默认开启：在**宿主机**上拉起已安装的编辑器、Git GUI、终端和文件管理器。
+# 托管部署里宿主机没有桌面、也没人坐在前面，所以这个能力最好的结果是无声失败，最坏的
+# 结果是让 Runtime 主机上的应用被业务用户间接驱动。与 `directory-picker` 同一类，同样关掉。
+- id: open-in-app
+  disabled: true
+
+- id: ui-open-in-app
+  disabled: true
+
+# 同一个「交给宿主机桌面」的出口，在这两个控制器上各有一半。
+#
+# **这两条的强度不一样，别把它们当成同一件事。**
+#
+# `settings-controller`：`openDocument` 会先查 `canOpenPath()` 再决定开不开，所以
+# `nativeOpen: false` 在这里是真正的拒绝。
+#
+# `session-controller`：`nativeOpen` 只喂给能力探测 `canOpenWorkspacePath`；真正动手的
+# `openWorkspacePath` 不查它，直接走到 `open`/`xdg-open`。所以这一条**只是 UI 提示**
+# ——它让前端不显示「用本机程序打开」，但拦不住任何一个直接发过来的 RPC。
+#
+# 因此挡住宿主机命令执行的是网关，不是这里：`runtime-gateway` 的 `BLOCKED_RPC_PREFIXES`
+# 里有 `/api/session.openWorkspacePath`。本仓库的安全模型说「只隐藏界面不是安全边界」，
+# 同理，一条只影响探测结果的配置也不是。删这一条不会打开洞，删网关那一条会。
+- id: session-controller
+  config:
+    nativeOpen: false
+
+- id: settings-controller
+  config:
+    nativeOpen: false
+
 # api-gateway injects this service at boot even when the directory picker UI is
 # absent. The enterprise Gateway denies its model-facing RPCs below, so it is
 # an internal dependency rather than an end-user capability.
@@ -149,12 +180,14 @@
     - id: dshserver-preferences
       name: '@dshserver/dsh-preferences'
 
-# Files a session produced, opened in the browser rather than handed to the
-# server's desktop. `workspaces.openPath` targets the *host machine*, which in a
-# hosted deployment has no desktop and nobody sitting at it — so a user told
-# "article.html is ready" could only ever get a refusal. Takes over that one
-# exit, which is the one all three surfaces share: badges, file mentions and
-# tool rows are fixed together.
+# 产出文件在浏览器里打开，而不是交给服务器的桌面。
+#
+# 这个插件在右侧栏 tab 类型注册表的 `extension` 档注册一个类型，按扩展名认领内置文本预览
+# 显示不了的那几类（网页、图片、PDF/Office）。Markdown、JSON、源码故意不认领——内置预览
+# 会分页读、能跳行、能重载。
+#
+# 它只负责「在浏览器里能看」这一半。堵住宿主机那个出口是上面 `open-in-app` 与网关黑名单
+# 的事，两边都到位这件事才算做完。
 - insert:
     - id: dshserver-deliverables
       name: '@dshserver/dsh-deliverables'

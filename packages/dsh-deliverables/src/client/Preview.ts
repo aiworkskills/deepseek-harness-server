@@ -1,13 +1,13 @@
 /**
- * Render one produced file in the details panel, by kind.
+ * Render one produced file in its Sidebar tab, by kind.
  *
  * Written with `createElement` rather than JSX to match the rest of this
  * repository's browser halves: one fewer build mode, and the bundle is the
  * same either way.
  */
-import { createElement as h, useEffect, useState, type ReactNode } from 'react'
+import { createElement as h, type ReactNode } from 'react'
 
-import { deliverableFileUrl, deliverableKind } from '../contract.js'
+import { deliverableFileUrl, deliverableKind, type DeliverableKind } from '../contract.js'
 import { basename } from './basename.js'
 
 /**
@@ -28,7 +28,6 @@ function icon(path: string, extra?: ReactNode): ReactNode {
 
 const OPEN_ICON = 'M15 3h6v6M10 14 21 3M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5'
 const DOWNLOAD_ICON = 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3'
-const CLOSE_ICON = 'M18 6 6 18M6 6l12 12'
 
 /** Icon-only controls need a name; the tooltip and the accessible name are the same word. */
 const ACTION_STYLE = {
@@ -41,32 +40,18 @@ const ACTION_STYLE = {
 export interface PreviewProps {
   readonly sessionId: string
   readonly path: string
-  readonly onClose: () => void
 }
 
-/** Text kinds are fetched rather than framed, so they can be shown as text. */
-function useFileText(url: string, enabled: boolean): { text: string | null; error: string | null } {
-  const [state, setState] = useState<{ text: string | null; error: string | null }>({ text: null, error: null })
-  useEffect(() => {
-    if (!enabled) return
-    const abort = new AbortController()
-    setState({ text: null, error: null })
-    void fetch(url, { cache: 'no-store', credentials: 'same-origin', signal: abort.signal })
-      .then(async response => {
-        if (!response.ok) throw new Error(`HTTP ${String(response.status)}`)
-        return await response.text()
-      })
-      .then(text => { setState({ text, error: null }) })
-      .catch((error: unknown) => {
-        if (abort.signal.aborted) return
-        setState({ text: null, error: error instanceof Error ? error.message : String(error) })
-      })
-    return () => { abort.abort() }
-  }, [url, enabled])
-  return state
-}
-
-function body(kind: ReturnType<typeof deliverableKind>, url: string, text: string | null, error: string | null): ReactNode {
+/**
+ * 一个产出文件的正文，按类型。
+ *
+ * 只有三种：这个插件在侧栏 tab 注册表里只认领网页、图片和 PDF/Office，其余交回内置
+ * 文本预览。所以这里没有"读取中"和"读取失败"——需要 fetch 才能显示的类型不归本插件。
+ * @param kind - 该路径的渲染类型。
+ * @param url - 产出文件路由上的地址。
+ * @returns 要渲染的正文。
+ */
+function body(kind: DeliverableKind, url: string): ReactNode {
   if (kind === 'html') {
     return h('iframe', {
       // `allow-scripts` without `allow-same-origin`, and never both: with both,
@@ -83,25 +68,14 @@ function body(kind: ReturnType<typeof deliverableKind>, url: string, text: strin
   if (kind === 'image') {
     return h('img', { src: url, alt: '', style: { maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' } })
   }
-  if (kind === 'binary') {
-    return h('div', { style: { padding: '16px', opacity: 0.7 } },
-      h('p', null, '这个类型不预览。'),
-      h('a', { href: url, download: true }, '下载文件'))
-  }
-  if (error !== null) return h('div', { style: { padding: '16px', opacity: 0.7 } }, `读取失败:${error}`)
-  if (text === null) return h('div', { style: { padding: '16px', opacity: 0.7 } }, '正在读取…')
-  return h('pre', {
-    style: {
-      margin: 0, padding: '16px', overflow: 'auto', height: '100%',
-      whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: '12px', lineHeight: 1.6,
-    },
-  }, text)
+  return h('div', { style: { padding: '16px', opacity: 0.7 } },
+    h('p', null, '这个类型不预览。'),
+    h('a', { href: url, download: true }, '下载文件'))
 }
 
-export function Preview({ sessionId, path, onClose }: PreviewProps) {
+export function Preview({ sessionId, path }: PreviewProps) {
   const kind = deliverableKind(path)
   const url = deliverableFileUrl(sessionId, path)
-  const { text, error } = useFileText(url, kind !== 'html' && kind !== 'image' && kind !== 'binary')
 
   return h('div', { style: { display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 } },
     h('div', {
@@ -124,14 +98,12 @@ export function Preview({ sessionId, path, onClose }: PreviewProps) {
           title: '在新标签页打开', 'aria-label': '在新标签页打开', style: ACTION_STYLE,
         }, icon(OPEN_ICON))
         : null,
+      // No close control: this renders inside a Sidebar tab, and closing is the
+      // tab chrome's — two close buttons would be two gestures for one thing.
       h('a', {
         href: url, download: true,
         title: '下载', 'aria-label': '下载', style: ACTION_STYLE,
-      }, icon(DOWNLOAD_ICON)),
-      h('button', {
-        type: 'button', onClick: onClose,
-        title: '关闭', 'aria-label': '关闭', style: ACTION_STYLE,
-      }, icon(CLOSE_ICON)))),
+      }, icon(DOWNLOAD_ICON)))),
     h('div', { style: { flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'auto' } },
-      body(kind, url, text, error)))
+      body(kind, url)))
 }

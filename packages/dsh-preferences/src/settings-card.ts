@@ -3,7 +3,7 @@
  * draft validation are UX-level only; the Runtime settings namespace remains
  * the authority and rejects out-of-range writes.
  */
-import type { SettingsScope, SettingsScopeSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SettingsScope, SettingsScopeSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
 import {
   createElement as h, useEffect, useState, useSyncExternalStore,
   type ChangeEvent, type CSSProperties, type ReactNode,

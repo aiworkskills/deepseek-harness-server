@@ -58,6 +58,7 @@ API。
 | 会话模型选择 | 保留 | 原生模型目录可读 | 用户可在管理员发布的模型中选择 |
 | Preset 创作与切换 | 移除 | 写入与选择均拒绝 | 会话强制 `business` |
 | 任意目录与本地路径 | 不装载目录浏览 UI | 目录 RPC 拒绝 | 唯一受管工作区 |
+| 在宿主机上拉起本地应用 | `ui-open-in-app` 禁用 | **网关拒绝 `session.openWorkspacePath`**（`nativeOpen: false` 只关掉能力探测，拦不住 RPC） | `open-in-app` 禁用 |
 | 工作区创建 / 删除 / 移动 | 无创建入口 | 变更 RPC 拒绝 | 由 Runtime Manager 启动时创建 |
 | Shell / 文件系统 / 任意网络 | 不展示 | 无对应工具 | 默认不进入业务 Preset |
 | 沙箱提权 | 不展示 | 无切换接口 | 默认 Read Only，见下文 |
@@ -126,6 +127,13 @@ DSH 原生设置页只对带 `assistant:platform:write` 的账号装载，并由
 全部要求 `assistant:platform:write`，`settings.openDocument` 一律拒绝。插件不能自行扩大
 这一边界，但审计第三方插件时要意识到它注册的任何命名空间都会出现在管理员的设置页上。
 
+**升级 DSH 本身也是一次插件审核。** 官方 bundle 新增的能力默认是**开启**的，而企业 overlay
+只对它见过的 id 表过态——没表态的新能力会直接出现在普通用户面前，且不会有任何报错。
+`0.1.1-rc.2` 升到 `0.1.5-alpha.1` 就新增了 20 个 id，其中 `open-in-app` 能在宿主机上拉起
+编辑器、终端和文件管理器。核对办法写在
+[兼容性 · 升级流程](compatibility.md#升级流程)第 5 步：从新旧两版
+`packages/bundle/{base,web-app}/cordis.patch.yml` 取 id 全集做差集，逐个决定。
+
 ## 提示注入与工具组合
 
 模型上下文可能包含来自业务数据的不可信内容。因此：
@@ -160,6 +168,8 @@ DSH 原生设置页只对带 `assistant:platform:write` 的账号装载，并由
 - [ ] `runtime-lease.jwt` 权限为 `0600`，日志中检索不到 Token。
 - [ ] 普通用户调用 settings、credentials、目录或工作区变更 API 返回 403。
 - [ ] `settings.openDocument` 对所有角色均被拒绝。
+- [ ] `session.openWorkspacePath` 对所有角色均被拒绝——它会在 Runtime 宿主机上执行
+      `open`/`xdg-open`，且**不受** `nativeOpen: false` 约束，网关是唯一的边界。
 - [ ] 非管理员无法读取角色策略；策略更新校验管理 Scope 与当前版本号。
 - [ ] Token Broker 拒绝任何超出租约 Scope 的换票请求。
 - [ ] 业务 API 对越权对象返回 403 / 404，而不是依赖前端隐藏。

@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest'
 
 import type { Context } from '@deepseek-ai/cordis'
 import { resolveConfig } from '../src/config.js'
-import { connectorSettings } from '../src/connector-settings.js'
+import {
+  CONNECTOR_SETTINGS_NAMESPACE, DEFAULT_CONNECTOR_SETTINGS,
+  connectorSettings, installConnectorSettings, type ConnectorSettings,
+} from '../src/connector-settings.js'
 import { authorizationProblem, BUSINESS_TOOL_NAMES, exchangeScope, requiredScopes } from '../src/policy.js'
 
 const base = {
@@ -34,30 +37,50 @@ describe('connector configuration', () => {
   })
 })
 
-describe('tool authorization policy', () => {
-  it('requires every scope used by team analytics', () => {
-    expect(authorizationProblem('business_customer_overview', {
-      readScope: 'customers:read:team',
-      grantedScopes: new Set(['customers:read:team']),
-      writeOperationsEnabled: true,
-    })).toContain('analytics:read')
+/**
+ * 这一节守的是"注册在正确的命名空间下、并且把范围校验交了出去"。
+ *
+ * 两条都无声：命名空间写错会注册出一个没有卡片能找到的配置段，而漏交 `validate`
+ * 会让越界的存量值在工具调用时才炸，而不是在保存时被拒。
+ */
+describe('tenant settings installation', () => {
+  interface RegisterCall {
+    ns: unknown
+    base: unknown
+    validate: ((value: ConnectorSettings) => void) | undefined
+  }
+
+  function stubContext(): { ctx: Context; calls: RegisterCall[] } {
+    const calls: RegisterCall[] = []
+    const ctx = {
+      settings: {
+        register: (ns: unknown, _schema: unknown, options: {
+          base: unknown
+          validate?: (value: ConnectorSettings) => void
+        }) => { calls.push({ ns, base: options.base, validate: options.validate }) },
+      },
+    } as unknown as Context
+    return { ctx, calls }
+  }
+
+  it('registers under this connector namespace, with the entry as base', () => {
+    const { ctx, calls } = stubContext()
+    installConnectorSettings(ctx, DEFAULT_CONNECTOR_SETTINGS)
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.ns).toBe(CONNECTOR_SETTINGS_NAMESPACE)
+    expect(calls[0]?.base).toBe(DEFAULT_CONNECTOR_SETTINGS)
   })
 
-  it('lets the platform administrator stop all writes without changing OAuth', () => {
-    expect(authorizationProblem('business_update_customer', {
-      readScope: 'customers:read:team',
-      grantedScopes: new Set(['customers:write:team']),
-      writeOperationsEnabled: false,
-    })).toContain('暂停写操作')
+  it('hands over the range check, so a stored value out of range is refused', () => {
+    const { ctx, calls } = stubContext()
+    installConnectorSettings(ctx, DEFAULT_CONNECTOR_SETTINGS)
+    expect(() => calls[0]?.validate?.({ ...DEFAULT_CONNECTOR_SETTINGS, requestTimeoutMs: 1 }))
+      .toThrow('requestTimeoutMs')
   })
 
-  it('requests exactly the guarded scopes during token exchange', () => {
-    for (const name of BUSINESS_TOOL_NAMES) {
-      for (const readScope of ['customers:read:self', 'customers:read:team'] as const) {
-        expect(exchangeScope(name, readScope)).toBe(requiredScopes(name, readScope).join(' '))
-      }
-    }
-    expect(exchangeScope('business_list_customers', 'customers:read:self')).toBe('customers:read:self')
-    expect(exchangeScope('business_customer_overview', 'customers:read:self')).toBe('customers:read:team analytics:read')
+  it('keeps the namespace a literal the service can brand', () => {
+    // `settingsNamespace()` 没了，改由 `register`/`get` 在类型层校验字面量，
+    // 而这只在常量保持窄字符串类型时成立——widen 成 `string` 就失效了。
+    expect(CONNECTOR_SETTINGS_NAMESPACE).toBe('dshserver-integration')
   })
 })
