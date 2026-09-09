@@ -75,11 +75,32 @@ DSH 发布 `0.1.0` 正式版后，本文会更新为区间安装，并去掉这�
    确认编译器真的报错——不报错就说明类型已经退化了。
 4. `pnpm example` —— 这一步会真实跑通守卫、Token Exchange 与业务调用，比类型检查更能
    发现运行期契约变化。
-5. 逐条核对 `config/dsh-profile/cordis.patch.yml`：官方 bundle 里**新增**的能力默认是开启的，
+5. **逐条核对 `config/agent-presets/*/agent.cordis.yml` 里每个插件的 config 键。**
+   上游改插件的 config schema 不会有任何编译或类型提示，Preset 挂不上时只在**创建会话**
+   的那一刻炸，浏览器侧看到的是 `session create failed: agent-preset/invalid`。
+   `0.1.1-rc.2` → `0.1.5-alpha.1` 就把 `dsh-persona` 的 `text` 改名成了 `prefix`
+   （并新增可选的 `suffix`），三个 Preset 一起挂掉。机械比对办法：
+
+   ```bash
+   # 在 harness 检出里跑，逐个对比新旧两版的 Config 键
+   for pair in "dsh-persona:preset/persona" "dsh-tool-bash:shell/tool-bash" …; do
+     pkg=${pair%%:*}; dir=${pair#*:}
+     old=$(git show <旧tag>:packages/$dir/src/index.ts | grep -A12 "export const Config" \
+       | grep -oE "^  [a-zA-Z]+:" | tr -d " :" | sort | tr "\n" " ")
+     new=$(grep -A12 "export const Config" packages/$dir/src/index.ts \
+       | grep -oE "^  [a-zA-Z]+:" | tr -d " :" | sort | tr "\n" " ")
+     [ "$old" != "$new" ] && echo "$pkg 变了: $old -> $new"
+   done
+   ```
+
+   包被移出默认 bundle **不等于**包没了：`tool-str-replace-editor` 在 0.1.5 被移出
+   bundle，但包仍在，Preset 显式引用它没有问题。要查的是 config 键，不是 bundle 成员。
+
+6. 逐条核对 `config/dsh-profile/cordis.patch.yml`：官方 bundle 里**新增**的能力默认是开启的，
    而 overlay 从没对它们表过态。比对办法是从
    `packages/bundle/{base,web-app}/cordis.patch.yml` 里取 id 全集，与上一版做差集。
-6. 更新本文的支持矩阵和 `peerDependencies` 区间。
-7. 在 `CHANGELOG.md` 记录支持版本的变化。
+7. 更新本文的支持矩阵和 `peerDependencies` 区间。
+8. 在 `CHANGELOG.md` 记录支持版本的变化。
 
 ## 本仓库的版本策略
 

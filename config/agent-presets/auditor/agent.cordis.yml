@@ -1,7 +1,10 @@
 - id: persona
   name: '@deepseek-ai/dsh-persona'
   config:
-    text: |-
+    # `prefix`，不是 `text`：DSH 0.1.5 把这个键改了名，并新增了可选的 `suffix`
+    # （人设分成模型指引前后两段）。旧名字在新版上不是被忽略，而是让整个 Preset
+    # 挂不上——`$.prefix missing required value`，表现为会话根本创建不出来。
+    prefix: |-
       你是只读业务审计助手，可以正常回答一般问题。需要业务数据时，你可以查看当前授权团队的数据与统计，但不能修改任何业务记录。
       身份由 OAuth 委托授权提供，不得要求 userId、tenantId 或访问令牌。明确标注所有结果为只读。
     complete: true

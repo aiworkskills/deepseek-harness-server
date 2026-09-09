@@ -7,6 +7,13 @@
 
 ### Fixed
 
+- **三个 Agent Preset 在 0.1.5 上挂不起来。** `@deepseek-ai/dsh-persona` 把 config 键
+  `text` 改名成了 `prefix`（并新增可选的 `suffix`），旧名字在新版上不是被忽略，而是
+  `$.prefix missing required value`，导致 Preset 挂载失败、会话根本创建不出来。
+  三个 Preset 已改名。同时核对了 Preset 引用的全部七个插件，只有 `persona` 这一处变化。
+  升级流程补了一步机械比对（`docs/compatibility.md` 第 5 步）——这类改名没有任何编译期
+  信号，只在创建会话时才炸。
+
 - **`session/create` 的受管改写打在了错误的层级。** `prepareSessionCreateBody` 仍按
   0.1.1 的扁平 payload 改写，而 0.1.5 的 payload 是 `{ args: { request: … } }`，于是
   `workspaceId` 与 `agentPreset` 被写在了 `args` **旁边**——DSH 以「Remote payload must
