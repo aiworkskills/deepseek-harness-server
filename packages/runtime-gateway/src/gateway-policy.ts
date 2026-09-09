@@ -83,21 +83,39 @@ export function prepareSessionCreateBody(
 ): Buffer {
   const parsed = JSON.parse(buffer.toString('utf8')) as {
     method?: unknown
-    payload?: Record<string, unknown>
+    payload?: { args?: Record<string, unknown> }
     [key: string]: unknown
   }
-  if (parsed.method !== 'session/create' || typeof parsed.payload !== 'object' || parsed.payload === null) {
+  // The request lives at `payload.args.request`, not at `payload`: DSH wraps
+  // every Remote invocation's arguments in `args`, keyed by the method's own
+  // parameter names, and `SessionController.create(request)` takes one called
+  // `request`. Rewriting the old shape put `workspaceId` beside `args` instead
+  // of inside it, which DSH refuses with "Remote payload must contain exactly
+  // one plain-object args field" — and refusing there means the pinning below
+  // never happened, so this must fail loudly rather than pass the body through.
+  const args = parsed.payload?.args
+  const request = args?.request
+  if (parsed.method !== 'session/create' || typeof args !== 'object' || args === null
+    || typeof request !== 'object' || request === null || Array.isArray(request)) {
     throw new Error('invalid session/create RPC envelope')
   }
-  const requestedPreset = parsed.payload.agentPreset
+  const fields = request as Record<string, unknown>
+  const requestedPreset = fields.agentPreset
   if (requestedPreset !== undefined && requestedPreset !== 'business') throw new Error('only the managed business preset is allowed')
   if (runtime.managedWorkspaceId.length === 0) throw new Error('managed workspace is not ready')
   return Buffer.from(JSON.stringify({
     ...parsed,
     payload: {
-      ...(typeof parsed.payload.sessionId === 'string' ? { sessionId: parsed.payload.sessionId } : {}),
-      workspaceId: runtime.managedWorkspaceId,
-      agentPreset: 'business',
+      // Exactly one key, and everything the caller asked for other than the two
+      // fields this deployment owns is dropped — the same posture as before the
+      // envelope changed.
+      args: {
+        request: {
+          ...(typeof fields.sessionId === 'string' ? { sessionId: fields.sessionId } : {}),
+          workspaceId: runtime.managedWorkspaceId,
+          agentPreset: 'business',
+        },
+      },
     },
   }))
 }

@@ -7,6 +7,14 @@
 
 ### Fixed
 
+- **`session/create` 的受管改写打在了错误的层级。** `prepareSessionCreateBody` 仍按
+  0.1.1 的扁平 payload 改写，而 0.1.5 的 payload 是 `{ args: { request: … } }`，于是
+  `workspaceId` 与 `agentPreset` 被写在了 `args` **旁边**——DSH 以「Remote payload must
+  contain exactly one plain-object args field」拒绝整个调用，浏览器侧表现为
+  `initial workspace selection failed`。改为改写 `payload.args.request`，并断言 `args`
+  仍是 payload 唯一的键。新增一条测试：无法改写的信封必须**抛错**而不是原样放行——
+  放行意味着受管工作区与 business Preset 的钉定从未生效。
+
 - **浏览器经网关访问 Runtime 一律 401。** DSH 的浏览器鉴权 cookie 名是
   `dsh-auth-<sha256(authority)>`，authority 就是请求的 `Host`，并且还签进 payload——
   所以在一个 authority 下换到的 cookie，在另一个 authority 下连名字都对不上。网关握手

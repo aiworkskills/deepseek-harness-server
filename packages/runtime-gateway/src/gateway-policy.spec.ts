@@ -73,27 +73,53 @@ describe('managed DSH Gateway policy', () => {
       type: 'client-request',
       rpcId: 'rpc-1',
       method: 'session/create',
+      // DSH wraps arguments in `args`, keyed by the method's parameter names.
       payload: {
-        sessionId: 'session-client-selected',
-        workspaceId: 'workspace-attacker-selected',
-        cwd: '/tmp/untrusted',
+        args: {
+          request: {
+            sessionId: 'session-client-selected',
+            workspaceId: 'workspace-attacker-selected',
+            cwd: '/tmp/untrusted',
+          },
+        },
       },
     }))
     const prepared = JSON.parse(prepareSessionCreateBody(incoming, {
       managedWorkspaceId: 'workspace-managed',
-    }).toString('utf8')) as { payload: Record<string, unknown> }
+    }).toString('utf8')) as { payload: { args: { request: Record<string, unknown> } } }
 
-    expect(prepared.payload).toEqual({
+    expect(prepared.payload.args.request).toEqual({
       sessionId: 'session-client-selected',
       workspaceId: 'workspace-managed',
       agentPreset: 'business',
     })
+    // `args` must remain the payload's only key: anything beside it and DSH
+    // refuses the whole call, which means the pinning above never took effect.
+    expect(Object.keys(prepared.payload)).toEqual(['args'])
+  })
+
+  /**
+   * The envelope shape is part of the boundary, not a detail. A rewrite that
+   * targets the wrong nesting writes the managed workspace somewhere DSH does
+   * not read, and the request either fails or — worse — succeeds with the
+   * caller's own choice.
+   */
+  it('refuses an envelope it cannot rewrite rather than passing it through', () => {
+    for (const payload of [
+      { sessionId: 'a', workspaceId: 'b' },        // 0.1.1 的扁平形状
+      { args: {} },                                 // 有 args 但没有 request
+      { args: { request: 'not-an-object' } },
+    ]) {
+      const incoming = Buffer.from(JSON.stringify({ method: 'session/create', payload }))
+      expect(() => prepareSessionCreateBody(incoming, { managedWorkspaceId: 'w' }))
+        .toThrow('invalid session/create RPC envelope')
+    }
   })
 
   it('rejects attempts to choose another Agent Preset', () => {
     const incoming = Buffer.from(JSON.stringify({
       method: 'session/create',
-      payload: { agentPreset: 'standard' },
+      payload: { args: { request: { agentPreset: 'standard' } } },
     }))
     expect(() => prepareSessionCreateBody(incoming, {
       managedWorkspaceId: 'workspace-managed',
