@@ -7,6 +7,16 @@
 
 ### Fixed
 
+- **普通用户的 Runtime 在 DSH 0.1.5 上起不来（EROFS）。** 0.1.5 起
+  `dsh-client-connection` 装载时无条件调 `credentials.modifyRecord` 给浏览器鉴权生成
+  签名密钥，而 `modifyRecord` **先加锁再判断要不要写**——所以哪怕记录已存在、无需写入，
+  创建 `.credentials.yaml.lock` 本身就会在只读挂载上 EROFS，整棵插件树 `failed to load`。
+  租户配置目录对普通用户只读是有意的边界（`backend-container` 的 Binds），不为此让步；
+  改为**按角色分流凭据路径**：管理员写租户共享的那一份，普通用户写自己 home 里的一份。
+  那把密钥本来就是每个 Runtime 自己的——它签的是这个 Runtime 自己的浏览器 cookie。
+  `settings.yaml` 不跟着走，仍在只读租户目录里。代价：普通用户的 Runtime 读不到管理员
+  存在租户 credentials 里的密钥；模型密钥走环境变量的部署不受影响。
+
 - **接上 DSH 0.1.5 的 Runtime 浏览器鉴权，并改正 RPC 路径形状。** 这四条只有真起一次
   Runtime 才会暴露——`pnpm check`、`release:check`、`example` 在修之前全是绿的。
   - 0.1.5 新增了 `browser-auth`：Runtime 自己鉴权浏览器面，根路径无 token 返回 401。

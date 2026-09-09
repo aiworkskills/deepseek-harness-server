@@ -145,7 +145,24 @@ export function runtimeLayout(options: RuntimeLayoutOptions, key: string, princi
     profileDir: join(home, 'profiles', 'web'),
     tenantConfigDir,
     settingsPath: join(tenantConfigDir, TENANT_SETTINGS_FILE),
-    credentialsPath: join(tenantConfigDir, TENANT_CREDENTIALS_FILE),
+    // 管理员写租户共享的那一份；普通用户写自己 home 里的一份。
+    //
+    // 这不是为了方便，是被 DSH 0.1.5 逼出来的：`dsh-client-connection` 装载时无条件
+    // 调 `credentials.modifyRecord` 给浏览器鉴权生成签名密钥，而 `modifyRecord` 先
+    // 加锁再判断要不要写——所以哪怕记录已存在、无需写入，创建 `.credentials.yaml.lock`
+    // 本身就会在只读挂载上 EROFS，整棵插件树起不来。
+    //
+    // 租户目录对普通用户只读是有意的边界（见 backend-container 的 Binds），不能为这个
+    // 让步。而那把密钥本来就是**每个 Runtime 自己的**：它签的是这个 Runtime 自己的
+    // 浏览器 cookie，不需要跨 Runtime 共享。settings 与 credentials 本来就是两个文件、
+    // 两种写需求，分开正是它们各自该在的位置。
+    //
+    // 代价说清楚：普通用户的 Runtime 读不到管理员存在租户 credentials 里的密钥。本部署
+    // 的模型密钥走环境变量（`extraEnv`），所以代价为零；把密钥存进那份文件的部署需要
+    // 知道这一点。
+    credentialsPath: principal.canConfigureDsh
+      ? join(tenantConfigDir, TENANT_CREDENTIALS_FILE)
+      : join(home, TENANT_CREDENTIALS_FILE),
     pluginRoot,
     preferencesRoot,
     configRoot: options.configRoot ?? join(pluginRoot, 'config'),

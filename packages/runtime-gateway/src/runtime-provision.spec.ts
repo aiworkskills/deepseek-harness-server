@@ -27,6 +27,29 @@ describe('runtime provisioning layout', () => {
     expect(layout.cli).toBe('/srv/deepseek-harness/apps/cli/lib/bin.js')
   })
 
+  /**
+   * 这条守的是安全边界与 DSH 0.1.5 新写入需求的交点，两边都无声。
+   *
+   * 租户目录对普通用户是只读挂载（见 backend-container 的 Binds），而 0.1.5 起
+   * `dsh-client-connection` 装载时无条件 `credentials.modifyRecord` 生成浏览器鉴权
+   * 密钥——`modifyRecord` 先加锁再判断，所以哪怕不需要写，创建锁文件就会 EROFS，
+   * 整棵插件树起不来。把凭据路径退回租户目录，普通用户的 Runtime 一个都起不来；
+   * 反过来把租户目录改成可写，边界就没了。两种都不会有编译或类型错误。
+   */
+  it('gives an ordinary user a writable credentials path, and the admin the tenant-shared one', () => {
+    const user = runtimeLayout(options, 'subject-key', principal)
+    expect(user.credentialsPath).toBe('/srv/dshserver/.runtime/users/subject-key/home/.credentials.yaml')
+    expect(user.credentialsPath).not.toContain('/tenants/')
+
+    const admin = runtimeLayout(options, 'subject-key', { ...principal, canConfigureDsh: true })
+    expect(admin.credentialsPath).toContain('/.runtime/tenants/')
+    expect(admin.credentialsPath).not.toContain('subject-key')
+
+    // settings 不跟着走：它对普通用户必须保持在只读的租户目录里。
+    expect(user.settingsPath).toContain('/.runtime/tenants/')
+    expect(user.settingsPath).toBe(admin.settingsPath)
+  })
+
   it('defaults the plugin, preferences and config roots to the reference deployment layout', () => {
     const layout = runtimeLayout(options, 'subject-key', principal)
     expect(layout.pluginRoot).toBe('/srv/dshserver/plugin')
