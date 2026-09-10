@@ -1,0 +1,80 @@
+{
+  "name": "@dshserver/dsh-brand",
+  "version": "0.1.0",
+  "description": "Deployment-supplied sidebar brand for DeepSeek Harness — mark, wordmark, and blank-session headline",
+  "license": "MIT",
+  "author": "DSH Server contributors",
+  "homepage": "https://github.com/aiworkskills/deepseek-harness-server/tree/main/packages/dsh-brand#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aiworkskills/deepseek-harness-server.git",
+    "directory": "packages/dsh-brand"
+  },
+  "bugs": {
+    "url": "https://github.com/aiworkskills/deepseek-harness-server/issues"
+  },
+  "keywords": [
+    "dsh",
+    "cordis",
+    "branding",
+    "white-label"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./client": "./dist/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-sidebar"
+      ],
+      "platform": "web"
+    }
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.map",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "pnpm clean && tsc -p tsconfig.json && tsc -p tsconfig.client.json --noEmit && esbuild src/client.ts --bundle --platform=browser --format=cjs --external:react --outfile=dist/client-body/client.js && node scripts/wrap-client.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit && tsc -p tsconfig.test.json",
+    "test": "vitest run --dir tests",
+    "clean": "rm -rf dist"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-client-ui-conversation": ">=0.1.5-alpha.1 <0.2.0",
+    "@deepseek-ai/dsh-client-ui-renderer": ">=0.1.5-alpha.1 <0.2.0",
+    "@deepseek-ai/dsh-client-ui-sidebar": ">=0.1.5-alpha.1 <0.2.0",
+    "react": "^18.2.0"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "4.0.2",
+    "@deepseek-ai/dsh-client-ui-conversation": "0.1.5-alpha.1",
+    "@deepseek-ai/dsh-client-ui-renderer": "0.1.5-alpha.1",
+    "@deepseek-ai/dsh-client-ui-sidebar": "0.1.5-alpha.1",
+    "@deepseek-ai/dsh-client-ui-slots": "0.1.5-alpha.1",
+    "@types/react": "^18.3.1",
+    "esbuild": "^0.28.2",
+    "react": "18.3.1",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.8"
+  }
+}

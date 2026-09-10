@@ -203,6 +203,41 @@
       config:
         hostOrigin: !!js process.env.DSHSERVER_EMBED_HOST_ORIGIN
 
+# 部署方自己的品牌：填在这里，不改任何代码。
+#
+# 自建 Runtime 的标记是 DSH 那条鱼、左边栏写 `DSH Local Build <sha>`——那是它在没有官方
+# 构建标识时的兜底，几乎不是任何部署方想要的。变量都不设 = 整段是空操作：插件一个槽位
+# 都不占，DSH 自己的品牌原样留着。**给了才占位**是这个插件的设计，不是巧合。
+#
+# 跟上面那个包的分工不是「二选一」，是**按槽位**分的：
+#
+#   sidebar.brand.mark          嵌入插件从不占（它的协议里只有文字，没有图），这里占
+#   sidebar.brand.name          嵌入时是工作区切换器，归上面那个包
+#   conversation.hero.brand.mark 嵌入时承载页面给的大标题，归上面那个包
+#
+# 槽位是遮蔽式的：同一个格子只有优先序里第一个存活的条目会渲染，两个都在 `extension`
+# 档，抢同一个格子就变成「按 Profile 顺序静默二选一」。所以配了嵌入来源时这里置
+# `markOnly`——文字类的两个座位交出去，logo 留下。此时再设 BRAND_NAME / BRAND_HEADLINE
+# 会在加载时报错，而不是悄悄不生效。
+- insert:
+    - id: dshserver-brand
+      name: '@dshserver/dsh-brand'
+      config:
+        # 嵌入形态下只占 logo 那一个座位，文字两个交给 dshserver-embed-chrome。
+        markOnly: !!js (process.env.DSHSERVER_EMBED_HOST_ORIGIN ?? '').trim() !== ''
+        # 内联 SVG 源码，用 fill="currentColor" 可跟随明暗主题——DSH 官方那枚鱼形标记
+        # 自己就是 currentColor，硬编码颜色的标记在另一个主题下会消失。内容不做净化：
+        # 它来自部署环境，只有运维写得了，不是用户输入。
+        markSvg: !!js process.env.DSHSERVER_BRAND_MARK_SVG
+        # 图片地址，在没有 markSvg 时使用。绝对 URL 或 data: URI，任意格式，但不跟随主题。
+        markUrl: !!js process.env.DSHSERVER_BRAND_MARK_URL
+        # 标记的无障碍名称，不给则取 name。
+        markAlt: !!js process.env.DSHSERVER_BRAND_MARK_ALT
+        # 侧栏文字商标。
+        name: !!js process.env.DSHSERVER_BRAND_NAME
+        # 空会话的大标题。
+        headline: !!js process.env.DSHSERVER_BRAND_HEADLINE
+
 - id: ui-agent-preset
   disabled: true
 

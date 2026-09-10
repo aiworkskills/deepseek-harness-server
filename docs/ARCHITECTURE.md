@@ -101,6 +101,28 @@ Host 半边只做**信任决定**，因为它是唯一有配置的一半：`host
 
 `switch` 是请求而非命令：换工作区意味着换一个 Runtime、换一张令牌，只有页面能重新签发。
 
+## 部署方品牌
+
+```text
+packages/dsh-brand/src/contract.ts  配置形状、槽位判定与校验（两个平面共享）
+packages/dsh-brand/src/index.ts     Host 平面：只做校验，让写错的 Profile 在加载时报错
+packages/dsh-brand/src/client.ts    浏览器平面：给了什么才占哪个槽位
+```
+
+上一节的包解决**嵌入**时的品牌，这个包解决**独立打开**时的：品牌来自 Profile，
+部署时定死，不需要页面参与。两者填同一批槽位，不同时启用。
+
+这不是把 DSH 撬开——DSH 自己的品牌就是一个可替换插件（`ui-brand-official`），
+在非官方构建上它什么都不注册，槽位空着等人来填。
+
+**没东西可画就不注册**是本包的整个形状。`sidebar.brand.mark` 被渲染在折叠按钮内部当
+静息状态，面板图标只在悬停时出现；占下它却渲染 `null`，展开态看着对，折叠态留下一个
+不悬停就看不见的控件——而且槽位的 `fallback` 只在无人注册时生效，占着它连 DSH 自己的
+兜底也一起顶掉。这个错误 `dsh-embed-chrome` 犯过一次。
+
+校验用普通代码而非 schemastery：本包链接进 Profile，身边没有 `node_modules`，
+一个 `z.object()` 就足以让 Runtime 以 `ERR_MODULE_NOT_FOUND` 起不来。
+
 ## 配置所有权
 
 | 配置 | 拥有者 | 运行期变更 |

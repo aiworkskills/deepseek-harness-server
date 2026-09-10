@@ -10,7 +10,7 @@ Runtime 和业务 API 对象级授权实现多用户共用。
 > 本项目由 [aiworkskills](https://github.com/aiworkskills) 维护，是 DeepSeek Harness 的
 > 第三方扩展，**与 DeepSeek 官方无关**，也未获得其背书。
 
-## 六个包
+## 七个包
 
 | 包 | 加载平面 | 作用 |
 |---|---|---|
@@ -20,6 +20,7 @@ Runtime 和业务 API 对象级授权实现多用户共用。
 | [`@dshserver/dsh-preferences`](packages/dsh-preferences) | 浏览器 | 个人偏好、连接器设置卡片、业务页面话术送入 |
 | [`@dshserver/dsh-deliverables`](packages/dsh-deliverables) | Runtime + 浏览器 | 托管部署里,对话中的产物点开就在右侧面板里看 |
 | [`@dshserver/dsh-embed-chrome`](packages/dsh-embed-chrome) | Runtime + 浏览器 | DSH 嵌在自己页面里时,由那个页面决定品牌、大标题与工作区切换 |
+| [`@dshserver/dsh-brand`](packages/dsh-brand) | Runtime + 浏览器 | 独立打开时,部署方在 Profile 里填自己的标记、文字商标与空会话标题 |
 
 外加 [`config/`](config)：部署方维护的企业 Profile 与三套 Agent Preset（员工、管理者、
 审计员）。

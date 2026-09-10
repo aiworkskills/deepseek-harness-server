@@ -46,6 +46,7 @@ const publicPackages = [
   'packages/dsh-preferences',
   'packages/dsh-deliverables',
   'packages/dsh-embed-chrome',
+  'packages/dsh-brand',
 ]
 
 for (const entry of readdirSync(join(root, 'packages'), { withFileTypes: true })) {

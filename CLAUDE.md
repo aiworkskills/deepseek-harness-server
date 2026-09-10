@@ -1,8 +1,8 @@
 # AGENTS.md
 
-`@dshserver/*` —— 把 DeepSeek Harness 接进企业业务系统的连接器。四个 Runtime 插件
-（OAuth 授权守卫、浏览器偏好、产出文件、嵌入式外观）加两个网关包。改 `packages/`
-之前读 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，接新客户读
+`@dshserver/*` —— 把 DeepSeek Harness 接进企业业务系统的连接器。五个 Runtime 插件
+（OAuth 授权守卫、浏览器偏好、产出文件、嵌入式外观、部署方品牌）加两个网关包。改
+`packages/` 之前读 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，接新客户读
 [docs/integration.md](docs/integration.md)。
 
 **卡住时先看 [docs/FAILURE-MODES.md](docs/FAILURE-MODES.md)**——它按报错原文索引，
@@ -20,6 +20,13 @@
 - 插件组合 → `RuntimeManagerOptions.runtimePlugins`
 - 部署资产 → `pluginRoot` / `preferencesRoot` / `configRoot`
 - 身份与策略 → `GatewayServer` 的 `authenticate` / `authorize` 回调
+- **外观（logo、文字商标、空会话标题）→ Profile 里 `dshserver-brand` 的 config**
+
+最后一条是新项目最先想改的东西，所以说清楚：**不要为了换 logo 去动任何代码。**
+自建 Runtime 左边栏默认写 `DSH Local Build <sha>`，换掉它是往 Profile 里加一段
+config（见 [packages/dsh-brand/README.md](packages/dsh-brand/README.md)），
+不是改插件、更不是 fork。嵌入形态的项目改用 `dshserver-embed-chrome`，
+由嵌入页面在运行时给——两者填同一批槽位，**不要同时启用**。
 
 需要连接器改动才能支持的场景，**改在这里并发布**，不要在下游打补丁。
 
@@ -48,15 +55,22 @@
 - **租户配置目录对普通用户是只读挂载**（`backend-container.ts` 的 `Binds`）。这是把
   「普通用户不能改平台配置」从界面策略变成文件系统事实。需要写入时，分流写入路径，
   不要放开这个挂载。
-- **浏览器半边运行时只能 import React。** 插件以符号链接进 profile，身边没有自己的
-  `node_modules`，任何别的运行时 import 都会让整个 Runtime 起不来。
-  `dsh-deliverables/tests/bundle.spec.ts` 守着这条线，它已经被破过两次。
+- **链接进 profile 的插件运行时只能 import Node 内建与 React。** 它们身边没有自己的
+  `node_modules`，任何别的运行时 import 都会让整个 Runtime 以 `ERR_MODULE_NOT_FOUND`
+  起不来，而且是在就绪探测之后——外面只看到 503。**这包括 `@deepseek-ai/schemastery`**，
+  所以这些包不导出 schemastery 的 `Config` 模式，校验用普通代码做（cordis 在没有模式时
+  原样透传配置）。破过三次，前两次都是线上才发现；每个受影响的包现在都有
+  `tests/bundle.spec.ts` 守着，第三次是它当场拦下的。
+- **没东西可画的槽位不要注册。** DSH 把 `sidebar.brand.mark` 渲染在折叠按钮内部当静息
+  状态，占着它却渲染 `null`，折叠态就留下一个不悬停就看不见的控件；而槽位的 `fallback`
+  只在无人注册时生效，占着它连 DSH 自己的兜底也一起顶掉。展开态看着完全正常，
+  所以这个 bug 活了很久。
 - **产物路由的收敛在 realpath 之后比较。** 逃逸等于跨租户读取。
 
 ## 命令
 
 ```bash
-pnpm check          # build + typecheck + test，全部 6 个包
+pnpm check          # build + typecheck + test，全部 7 个包
 pnpm example        # 无需 Harness 与模型凭据的端到端契约检查
 pnpm release:check  # 发布边界：包内容、锁步版本、密钥扫描、compatibility 记录
 ```
