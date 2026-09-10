@@ -51,8 +51,61 @@ Host 平面先加载 settings 入口，使命名空间在任何会话创建前�
 | `requestTimeoutMs` | number | 否 | `15000` | 初始请求超时，范围 `1000`～`120000` |
 | `writeOperationsEnabled` | boolean | 否 | `true` | 初始写操作总开关 |
 | `minimumWriteReasonLength` | number | 否 | `2` | 初始最短变更原因字符数，范围 `2`～`200` |
+| `guard` | object | 否 | — | 对本插件**未注册**的工具施加的策略，见下节 |
 
 连接地址、Audience、租约、Scope 和工具白名单属于部署或策略输入，不能由普通用户修改。
+
+### 外部工具策略（`src/guard.ts`）
+
+上面那张表管的是本插件注册的业务工具。但一个 Agent Preset 通常还会装别的东西——MCP
+Server、shell、文件工具、技能——**它们不经过业务工具的 Scope 表**。守卫只能对它认得的调用
+发言，所以在配置 `guard` 之前，这些工具是没有授权层的。
+
+这不是理论风险：一个能执行命令的工具可以自己读走 Runtime 租约、换成业务 Token，然后调用
+委托用户有权调用的任何接口，全程不经过任何工具目录。只读部署就是在这里悄悄不再只读的。
+
+```yaml
+config:
+  guard:
+    default: deny                 # 必填
+    denyMessage: 本部署只开放查询与文档生成。
+    rules:
+      - match: 'mcp__mf__*'
+        requireScopes: [assistant:use]
+        arguments:
+          size: { max: 50 }
+          tenantId: { forbidden: true }
+      - match: [shell, subprocess]
+        commandField: command
+        allowCommands:
+          - '^node /opt/skills/docx/scripts/generate-docx\.mjs\s'
+        deny: 该命令未被部署方允许，可用的只有文档生成脚本。
+      - match: [read_file, glob, grep]
+```
+
+| 名称 | 类型 | 必填 | 默认值 | 说明 |
+|---|---|---|---|---|
+| `default` | `allow` \| `deny` | 是 | — | 未被任何规则匹配的工具如何处理 |
+| `denyMessage` | string | 否 | `该工具未被部署方允许调用。` | `default: deny` 时返回给模型的理由 |
+| `rules[].match` | string \| string[] | 是 | — | 工具名 glob，`*` 匹配任意字符，其余字面量 |
+| `rules[].requireScopes` | string[] | 否 | `[]` | 调用该工具所需的 OAuth Scope |
+| `rules[].commandField` | string | 否 | `command` | shell 类工具承载命令行的参数名 |
+| `rules[].allowCommands` | string[] | 否 | `[]` | 命令白名单正则；一条都不匹配即拒绝 |
+| `rules[].arguments` | object | 否 | `{}` | 逐参数约束：`max` `min` `pattern` `forbidden` |
+| `rules[].deny` | string | 否 | — | 自定义拒绝理由，覆盖自动生成的那句 |
+
+四条语义值得单独记住：
+
+- **`default` 必填。** 一个静默放行一切的 `guard` 段和没装守卫完全一样，而写下它的部署方
+  以为授权已经就位。这个失效模式没有任何外部信号，所以宁可让升级时报一次配置错误。
+- **匹配到的规则全部求值，任一拒绝即拒绝。** 后面的宽松规则翻不了前面的案——这与宿主契约
+  一致：守卫没有 allow 结果，任何顺序都不能把拒绝变回许可。
+- **命令读不到就拒绝。** 若 `commandField` 与实际 shell 的参数结构对不上，白名单会变成
+  一个什么都没检查的摆设。这是白名单唯一不能有的结局，所以取不到值时直接拒。
+- **坏正则在启动时失败。** 报错会指出是 `guard.rules[1].allowCommands[0]`，而不是等到某次
+  调用时才发现规则从未匹配过任何东西。
+
+`guard` 不配就完全不生效，现有部署升级后行为不变。
 
 ### 租户级设置（`src/connector-settings.ts`）
 
