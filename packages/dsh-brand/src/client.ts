@@ -23,11 +23,11 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 
-import { EMPTY_WORKSPACE_ACTIONS_CSS, hasHeadline, hasMark, hasName, type BrandConfig } from './contract.js'
+import { BRAND_ROUTE, EMPTY_WORKSPACE_ACTIONS_CSS, hasHeadline, hasMark, hasName, type BrandConfig } from './contract.js'
 import { HERO_MARKER, installHeroStyle } from './client/hero.js'
 
 export {
-  EMPTY_WORKSPACE_ACTIONS_CSS, hasHeadline, hasMark, hasName, type BrandConfig,
+  BRAND_ROUTE, EMPTY_WORKSPACE_ACTIONS_CSS, hasHeadline, hasMark, hasName, type BrandConfig,
 } from './contract.js'
 export { HERO_MARKER, installHeroStyle } from './client/hero.js'
 
@@ -54,60 +54,108 @@ function installStyle(css: string): () => void {
   return () => { style.remove() }
 }
 
-export function apply(ctx: ClientContext, config: BrandConfig = {}): void {
-  const alt = config.markAlt ?? config.name ?? ''
+/**
+ * Ask the Host half what this deployment's brand is.
+ *
+ * Not a config parameter: cordis passes profile config to the Host `apply`
+ * only, so a client plugin that declares one is handed `{}` on every load and
+ * takes no seat — indistinguishable from a deployment that supplied nothing.
+ * @param signal - abort signal tied to this plugin's lifetime.
+ * @returns the deployment's brand, or null when the Host half is not composed.
+ */
+async function fetchBrandConfig(signal: AbortSignal): Promise<BrandConfig | null> {
+  try {
+    const response = await fetch(BRAND_ROUTE, {
+      method: 'GET', cache: 'no-store', credentials: 'same-origin', signal,
+    })
+    if (!response.ok) return null
+    const value: unknown = await response.json()
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return null
+    return value as BrandConfig
+  } catch {
+    // The Host half may not be composed at all — a deployment saying "no brand
+    // of my own", not an error worth surfacing to a user.
+    return null
+  }
+}
 
-  function BrandMark({ size }: MarkProps): ReactNode {
-    if (config.markSvg !== undefined && config.markSvg !== '') {
-      // The markup is the operator's own, from the profile — never a user's.
-      return h('span', {
-        style: { display: 'inline-flex', width: size, height: size },
-        role: alt === '' ? 'presentation' : 'img',
-        ...(alt === '' ? { 'aria-hidden': true } : { 'aria-label': alt }),
-        dangerouslySetInnerHTML: { __html: config.markSvg },
+export function apply(ctx: ClientContext): void {
+  const abort = new AbortController()
+  const mounted: (() => void)[] = []
+
+  /**
+   * Take the seats this deployment gave something to fill.
+   *
+   * Runs once the config has arrived, so every seat is claimed knowing what
+   * goes in it. Until then this plugin holds nothing and DSH's own fallback
+   * draws — which is the correct thing to show while the answer is in flight,
+   * and the reason claiming up front would be wrong.
+   */
+  function claim(config: BrandConfig): void {
+    const alt = config.markAlt ?? config.name ?? ''
+
+    function BrandMark({ size }: MarkProps): ReactNode {
+      if (config.markSvg !== undefined && config.markSvg !== '') {
+        // The markup is the operator's own, from the profile — never a user's.
+        return h('span', {
+          style: { display: 'inline-flex', width: size, height: size },
+          role: alt === '' ? 'presentation' : 'img',
+          ...(alt === '' ? { 'aria-hidden': true } : { 'aria-label': alt }),
+          dangerouslySetInnerHTML: { __html: config.markSvg },
+        })
+      }
+      return h('img', {
+        src: config.markUrl,
+        alt,
+        width: size,
+        height: size,
+        style: { objectFit: 'contain' },
       })
     }
-    return h('img', {
-      src: config.markUrl,
-      alt,
-      width: size,
-      height: size,
-      style: { objectFit: 'contain' },
-    })
+
+    function BrandName(): ReactNode {
+      return h('span', { style: { whiteSpace: 'nowrap' } }, config.name)
+    }
+
+    // The marker is what `installHeroStyle`'s rules are scoped by; without it they
+    // match nothing and DSH's own headline renders beside ours.
+    function Headline(): ReactNode {
+      return h('span', { [HERO_MARKER]: '', style: { whiteSpace: 'nowrap' } }, config.headline)
+    }
+
+    // Each seat is taken only when this deployment gave something to put in it.
+    if (hasMark(config)) {
+      mounted.push(ctx.slots.inject('sidebar.brand.mark', () =>
+        ctx.slots.register({ name: 'sidebar.brand.mark' }, BrandMark)))
+    }
+    if (hasName(config)) {
+      mounted.push(ctx.slots.inject('sidebar.brand.name', () =>
+        ctx.slots.register({ name: 'sidebar.brand.name' }, BrandName)))
+    }
+    if (hasHeadline(config)) {
+      // The stylesheet and the occupant are one unit: the rules hide DSH's own
+      // headline and only fire on our marker, so installing either alone is a
+      // hero with two headlines or none.
+      mounted.push(installHeroStyle())
+      mounted.push(ctx.slots.inject('conversation.hero.brand.mark', () =>
+        ctx.slots.register({ name: 'conversation.hero.brand.mark' }, Headline)))
+    }
+
+    if (config.hideEmptyWorkspaceActions === true && typeof document !== 'undefined') {
+      mounted.push(installStyle(EMPTY_WORKSPACE_ACTIONS_CSS))
+    }
   }
 
-  function BrandName(): ReactNode {
-    return h('span', { style: { whiteSpace: 'nowrap' } }, config.name)
-  }
+  void fetchBrandConfig(abort.signal).then(config => {
+    if (abort.signal.aborted || config === null) return
+    claim(config)
+  })
 
-  // The marker is what `installHeroStyle`'s rules are scoped by; without it they
-  // match nothing and DSH's own headline renders beside ours.
-  function Headline(): ReactNode {
-    return h('span', { [HERO_MARKER]: '', style: { whiteSpace: 'nowrap' } }, config.headline)
-  }
-
-  // Each seat is taken only when this deployment gave something to put in it.
-  if (hasMark(config)) {
-    ctx.effect(() => ctx.slots.inject('sidebar.brand.mark', () =>
-      ctx.slots.register({ name: 'sidebar.brand.mark' }, BrandMark)),
-    'dshserver-brand: sidebar mark')
-  }
-  if (hasName(config)) {
-    ctx.effect(() => ctx.slots.inject('sidebar.brand.name', () =>
-      ctx.slots.register({ name: 'sidebar.brand.name' }, BrandName)),
-    'dshserver-brand: sidebar wordmark')
-  }
-  if (hasHeadline(config)) {
-    // The stylesheet and the occupant are one unit: the rules hide DSH's own
-    // headline and only fire on our marker, so installing either alone is a
-    // hero with two headlines or none.
-    ctx.effect(installHeroStyle, 'dshserver-brand: hero layout')
-    ctx.effect(() => ctx.slots.inject('conversation.hero.brand.mark', () =>
-      ctx.slots.register({ name: 'conversation.hero.brand.mark' }, Headline)),
-    'dshserver-brand: blank-session headline')
-  }
-
-  if (config.hideEmptyWorkspaceActions === true && typeof document !== 'undefined') {
-    ctx.effect(() => installStyle(EMPTY_WORKSPACE_ACTIONS_CSS), 'dshserver-brand: empty workspace actions')
-  }
+  ctx.effect(() => () => {
+    abort.abort()
+    // Reverse order: the hero stylesheet is only meaningful while its occupant
+    // is mounted, and releasing it first would flash DSH's headline back in.
+    for (const release of mounted.reverse()) release()
+    mounted.length = 0
+  }, 'dshserver-brand: release brand seats')
 }

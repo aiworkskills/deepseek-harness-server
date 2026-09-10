@@ -9,6 +9,19 @@
  * fallback that would otherwise have drawn something. This plugin exists partly
  * because that mistake was made once already.
  */
+/**
+ * Where the browser half asks the Host half what this deployment's brand is.
+ *
+ * The two halves do not share a configuration tree: the browser bundle is
+ * loaded by `window.__ModuleLoader__`, and cordis passes profile config only to
+ * the Host `apply`. A client plugin that declares a `config` parameter is
+ * handed the default every time — silently, because an empty config is exactly
+ * what "this deployment supplied nothing" looks like, and this plugin's whole
+ * contract is to take no seat in that case. So the config travels over HTTP,
+ * the same way `dsh-embed-chrome` learns its host origin.
+ */
+export const BRAND_ROUTE = '/plugins/dshserver/brand/config'
+
 export interface BrandConfig {
   /**
    * The wordmark, shown beside the mark in the expanded sidebar.
