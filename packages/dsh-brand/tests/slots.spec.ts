@@ -151,6 +151,13 @@ describe('the empty-workspace-actions workaround', () => {
     expect(EMPTY_WORKSPACE_ACTIONS_CSS).not.toMatch(/[A-Za-z0-9_-]{5,}_[a-zA-Z]+/)
   })
 
+  it('hides the row itself, not a zero-sized child of it', () => {
+    // 之前那版选的是 `> div:first-child:empty`——一个 0×0 的子元素，隐藏它什么也没改变。
+    // 运维看得见的是那个 36×36 的行，折叠态下夹在新会话与搜索图标之间。
+    expect(EMPTY_WORKSPACE_ACTIONS_CSS).not.toContain('first-child')
+    expect(EMPTY_WORKSPACE_ACTIONS_CSS).toContain(':not(:has(> :not(:empty)))')
+  })
+
   it('only hides the container while it is actually empty', () => {
     // 少了 :empty 就会连有按钮的部署一起藏掉——那些部署本来是好的。
     expect(EMPTY_WORKSPACE_ACTIONS_CSS).toContain(':empty')

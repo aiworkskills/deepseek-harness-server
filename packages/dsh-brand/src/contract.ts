@@ -154,7 +154,17 @@ export function hasHeadline(config: BrandConfig): boolean {
  * while the class names beside them (`ELhcta_headerActions`) are content hashes
  * that change on every upstream build — a rule written against those would stop
  * matching silently.
+ *
+ * The rule hides **the row**, not a child of it. An earlier version targeted
+ * `> div:first-child:empty`, which is a zero-by-zero element: hiding it changed
+ * nothing, because the 36×36 box the operator can actually see is the row. In
+ * the collapsed rail that row sits between the new-session and search icons
+ * with all three of its children empty, and reads as an unexplained gap.
+ *
+ * Scoped by "has no non-empty child" rather than by rail state: expanded, the
+ * same row carries the section label and the search and filter buttons, and a
+ * rule keyed on width or on the rail class would take those with it.
  */
 export const EMPTY_WORKSPACE_ACTIONS_CSS =
   '[data-slot="sidebar.workspaces"] div:has(> [data-slot="sidebar.workspaces.directoryFlow"])'
-  + ' > div:first-child:empty { display: none; }'
+  + ':not(:has(> :not(:empty))) { display: none; }'
