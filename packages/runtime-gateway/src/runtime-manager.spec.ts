@@ -16,7 +16,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { RuntimeManager } from './runtime-manager.js'
 import type { RuntimeBackend, RuntimeHandle, RuntimeStart } from './runtime-backend.js'
-import type { RuntimePrincipal } from './types.js'
+import type { RuntimeLeaseIssuer, RuntimePrincipal } from './types.js'
 
 const repoRoot = fileURLToPath(new URL('../../..', import.meta.url))
 
@@ -166,7 +166,11 @@ afterEach(async () => {
   await rm(scratch, { recursive: true, force: true })
 })
 
-async function makeManager(backend: RuntimeBackend, idleMs = 60_000): Promise<RuntimeManager> {
+async function makeManager(
+  backend: RuntimeBackend,
+  idleMs = 60_000,
+  authority: RuntimeLeaseIssuer = { issueRuntimeLease: async () => 'lease-token' },
+): Promise<RuntimeManager> {
   // A real provisioning pass needs a readable CLI file and one plugin artifact;
   // the fake backend never executes either.
   const cli = join(scratch, 'harness', 'apps', 'cli', 'lib', 'bin.js')
@@ -177,7 +181,7 @@ async function makeManager(backend: RuntimeBackend, idleMs = 60_000): Promise<Ru
   await writeFile(join(pluginRoot, 'dist', 'index.js'), 'export {}\n')
 
   const manager = new RuntimeManager(
-    { issueRuntimeLease: async () => 'lease-token' },
+    authority,
     {
       projectRoot: scratch,
       dshSourceRoot: join(scratch, 'harness'),
@@ -271,6 +275,68 @@ describe('idle reclamation counts connections, not clock alone', () => {
     // Releasing is what starts the countdown, so a long-running turn does not
     // arrive at its own end already expired.
     expect(Date.now() - record.lastUsedAt).toBeLessThan(1_000)
+  })
+
+  it('renews the lease under a Runtime that is still attached', async () => {
+    // The bug this replaces: the lease was only topped up inside `runtime()`,
+    // which runs when the gateway resolves a Runtime for a NEW request — and a
+    // turn in flight makes none. So a turn could outlive its own authorization:
+    // every business call failed with 令牌已过期 from the moment the lease
+    // lapsed, and nothing inside the turn could renew it.
+    let issued = 0
+    const manager = await makeManager(new FakeBackend(origin), 60_000, {
+      issueRuntimeLease: async () => { issued += 1; return `lease-${issued}` },
+    })
+    const record = await manager.runtime(principal)
+    expect(issued).toBe(1)
+
+    manager.attach(record)
+    record.leaseExpiresAt = Date.now()
+    await manager.sweepLeases()
+
+    expect(issued).toBe(2)
+    // Pushed out far enough that the next turn is not renewing again at once.
+    expect(record.leaseExpiresAt).toBeGreaterThan(Date.now() + 60_000)
+  })
+
+  it('lets the lease lapse once the last client is gone', async () => {
+    // Renewing an unattached Runtime would mint credentials on behalf of someone
+    // who has walked away. The lease expiring is what bounds that.
+    let issued = 0
+    const manager = await makeManager(new FakeBackend(origin), 60_000, {
+      issueRuntimeLease: async () => { issued += 1; return `lease-${issued}` },
+    })
+    const record = await manager.runtime(principal)
+    const detach = manager.attach(record)
+    detach()
+    record.leaseExpiresAt = Date.now()
+
+    await manager.sweepLeases()
+    expect(issued).toBe(1)
+  })
+
+  it('survives an authority that refuses one renewal', async () => {
+    // The live lease is still good for the whole margin, so one bad round trip
+    // must not take the Runtime — or a blip mid-turn becomes a dead session.
+    let issued = 0
+    const manager = await makeManager(new FakeBackend(origin), 60_000, {
+      issueRuntimeLease: async () => {
+        issued += 1
+        if (issued === 2) throw new Error('authority unavailable')
+        return `lease-${issued}`
+      },
+    })
+    const record = await manager.runtime(principal)
+    manager.attach(record)
+    record.leaseExpiresAt = Date.now()
+
+    await expect(manager.sweepLeases()).resolves.toBeUndefined()
+    expect(record.status).toBe('ready')
+
+    // And the next sweep still gets its chance.
+    await manager.sweepLeases()
+    expect(issued).toBe(3)
+    expect(record.leaseExpiresAt).toBeGreaterThan(Date.now() + 60_000)
   })
 
   it('counts each client once, however its socket ends', async () => {

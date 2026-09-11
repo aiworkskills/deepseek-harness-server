@@ -95,6 +95,27 @@ function defaultLog(message: string): void {
 const STARTUP_LOG_LINES = 40
 
 /**
+ * How long a Runtime Lease stays good for.
+ *
+ * A mirror of what the authority signs, not an instruction to it — the `exp`
+ * inside the JWT is what decides. Keep the two in step: a mirror that runs long
+ * has us believing a lease is alive after the business API has stopped taking
+ * it, which surfaces as an unexplained `令牌已过期` on every tool call.
+ */
+const LEASE_MS = 5 * 60_000
+
+/**
+ * Renew this far ahead of expiry.
+ *
+ * Wide enough that several sweeps land inside it, so one failed round trip to
+ * the authority is not the last chance before the lease lapses.
+ */
+const LEASE_MARGIN_MS = 2 * 60_000
+
+/** How often to look for leases due for renewal. Comfortably under the margin. */
+const LEASE_SWEEP_MS = 30_000
+
+/**
  * What we ask a starting Runtime, and why it is not `/`.
  *
  * The question here is only "is the webserver bound and serving" — whether the
@@ -311,6 +332,7 @@ export class RuntimeManager {
   private readonly starting = new Map<string, { readonly fingerprint: string; readonly promise: Promise<RuntimeRecord> }>()
   private readonly reportedTenants = new Set<string>()
   private readonly sweepTimer: NodeJS.Timeout
+  private readonly leaseTimer: NodeJS.Timeout
   private readonly backend: RuntimeBackend
 
   constructor(
@@ -320,6 +342,8 @@ export class RuntimeManager {
     this.backend = options.backend ?? new ProcessRuntimeBackend()
     this.sweepTimer = setInterval(() => { void this.sweepIdle() }, Math.min(60_000, Math.max(5_000, options.idleMs / 3)))
     this.sweepTimer.unref()
+    this.leaseTimer = setInterval(() => { void this.sweepLeases() }, LEASE_SWEEP_MS)
+    this.leaseTimer.unref()
   }
 
   async runtime(principal: RuntimePrincipal): Promise<RuntimeRecord> {
@@ -329,7 +353,7 @@ export class RuntimeManager {
     const existing = this.runtimes.get(key)
     if (existing !== undefined && existing.policyFingerprint === fingerprint && existing.status === 'ready') {
       existing.lastUsedAt = Date.now()
-      if (existing.leaseExpiresAt <= Date.now() + 60_000) await this.refreshLease(existing, principal)
+      if (existing.leaseExpiresAt <= Date.now() + LEASE_MARGIN_MS) await this.refreshLease(existing, principal)
       return existing
     }
     // A start already in flight owns the runtime behind `existing`, which is
@@ -367,6 +391,7 @@ export class RuntimeManager {
 
   async close(): Promise<void> {
     clearInterval(this.sweepTimer)
+    clearInterval(this.leaseTimer)
     await Promise.all([...this.runtimes.values()].map(async record => { await this.stop(record) }))
   }
 
@@ -463,7 +488,7 @@ export class RuntimeManager {
       await writeFile(temporary, `${lease}\n`, { mode: 0o600 })
       await chmod(temporary, 0o600)
       await rename(temporary, record.leaseFile)
-      record.leaseExpiresAt = Date.now() + 5 * 60_000
+      record.leaseExpiresAt = Date.now() + LEASE_MS
     })()
     record.leaseRefresh = refresh
     try {
@@ -490,6 +515,46 @@ export class RuntimeManager {
       // The idle clock starts when the last client leaves, not when it arrived.
       if (record.connections === 0) record.lastUsedAt = Date.now()
     }
+  }
+
+  /**
+   * Keep the lease alive under a Runtime that is working.
+   *
+   * `runtime()` already tops a lease up, but it only runs when the gateway
+   * resolves a Runtime for a NEW request — and a turn in flight generates none,
+   * for exactly the reasons `connections` was introduced: the browser is holding
+   * a stream opened minutes ago, the model calls go outbound from the Runtime,
+   * and the tools run inside it. So a turn could outlive its own authorization.
+   * Every business call failed with `令牌已过期` from the moment the lease
+   * lapsed, and nothing inside the turn could renew it — the MCP client rereads
+   * the lease file on every call, so it went on failing until the turn ended.
+   *
+   * Seen on a report task: six queries succeeded in the first two minutes, then
+   * the lease sat unrenewed for another eight while the turn kept running.
+   *
+   * A live connection is the same signal `sweepIdle` already trusts, used here
+   * for the same reason — someone is attached right now. With none, the lease
+   * lapses on purpose and the idle sweep takes the Runtime away shortly after.
+   *
+   * @internal Exported for tests; the constructor's timer is the only caller in production.
+   */
+  async sweepLeases(): Promise<void> {
+    const due = [...this.runtimes.values()].filter(record =>
+      record.status === 'ready' && record.connections > 0
+      && record.leaseExpiresAt <= Date.now() + LEASE_MARGIN_MS)
+    await Promise.all(due.map(async record => {
+      try {
+        await this.refreshLease(record, record.principal)
+      } catch (error) {
+        // One bad round trip is not worth killing a working Runtime over: the
+        // current lease is still good for up to LEASE_MARGIN_MS and the next
+        // sweep tries again. Say so, though — a renewal that keeps failing is
+        // otherwise invisible right up until the tools stop working.
+        const log = this.options.log ?? defaultLog
+        const cause = error instanceof Error ? error.message : String(error)
+        log(`failed to renew the Runtime Lease for ${record.id}: ${cause}`)
+      }
+    }))
   }
 
   /** @internal Exported for tests; the constructor's timer is the only caller in production. */
