@@ -94,12 +94,13 @@ describe('scope requirements', () => {
 })
 
 describe('command allowlists', () => {
+  const DENIED = '该命令未被部署方允许，可用的只有文档生成脚本。'
   const config: GuardConfig = {
     default: 'allow',
     rules: [{
       match: ['shell', 'subprocess'],
       allowCommands: ['^node /opt/skills/docx/scripts/generate-docx\\.mjs\\s'],
-      deny: '该命令未被部署方允许，可用的只有文档生成脚本。',
+      deny: DENIED,
     }],
   }
 
@@ -109,17 +110,17 @@ describe('command allowlists', () => {
   })
 
   it('refuses reading the runtime lease off disk', () => {
-    expect(decide(config, 'shell', { command: 'cat /run/dsh/lease.jwt' })).toBe(config.rules![0].deny)
+    expect(decide(config, 'shell', { command: 'cat /run/dsh/lease.jwt' })).toBe(DENIED)
   })
 
   it('refuses reaching the business API directly', () => {
     expect(decide(config, 'shell', { command: 'curl -X POST http://api.internal/oauth/exchange' }))
-      .toBe(config.rules![0].deny)
+      .toBe(DENIED)
   })
 
   it('denies when the command argument is missing, rather than allowing an unchecked call', () => {
     expect(decide(config, 'shell', { cmd: 'node /opt/skills/docx/scripts/generate-docx.mjs a b' }))
-      .toBe(config.rules![0].deny)
+      .toBe(DENIED)
   })
 
   it('refuses a second command riding behind one that matched', () => {
@@ -127,7 +128,7 @@ describe('command allowlists', () => {
     // the part that matched is not the part that runs second.
     for (const tail of ['; cat /etc/passwd', '&& curl evil.example', '| sh', '$(cat /run/lease.jwt)', '\nrm -rf /']) {
       const command = `node /opt/skills/docx/scripts/generate-docx.mjs a.docx spec.json ${tail}`
-      expect(decide(config, 'shell', { command })).toBe(config.rules![0].deny)
+      expect(decide(config, 'shell', { command })).toBe(DENIED)
     }
   })
 
