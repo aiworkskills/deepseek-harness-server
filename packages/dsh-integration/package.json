@@ -63,8 +63,8 @@
     "@deepseek-ai/dsh-settings": "0.1.5-alpha.1",
     "@deepseek-ai/schemastery": "3.18.2",
     "@deepseek-ai/dsh-tools": "0.1.5-alpha.1",
-    "@types/node": "^26.2.0",
+    "@types/node": "^26.5.0",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.8"
+    "vitest": "^5.0.0"
   }
 }
