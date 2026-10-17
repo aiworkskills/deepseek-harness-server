@@ -5,6 +5,6 @@
   "description": "Runtime dependency carrier for the docx skill's generator script",
   "type": "module",
   "dependencies": {
-    "docx": "^9.5.1"
+    "docx": "^9.11.0"
   }
 }
